@@ -73,10 +73,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.show()
 
     def initUI(self):
-        # Open Config Window
-        self.config_window = ConfigWindow(self, self.viewer)
-        self.config_window.show()
-
         # Populate the different menus
         # File Menu
         file_menu = self.menuBar.addMenu("&File")
@@ -93,6 +89,11 @@ class MainWindow(QtWidgets.QMainWindow):
         # TODO: Make this robust to saving before opening
         save_csv_edits.triggered.connect(lambda a: self.viewer.save_edits(self._file_path[:-3]+"csv"))
 
+        load_video = file_menu.addAction("Open Config")
+        load_video.setShortcut("Ctrl+O")
+        load_video.setStatusTip(
+            'Open the configuration window')
+        load_video.triggered.connect(self.open_config)
 
         quit_program = file_menu.addAction("Quit")
         quit_program.setShortcut("Ctrl+Q")
@@ -241,6 +242,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.detect_landmarks_window = DetectLandmarksWindow(self)
         self.detect_landmarks_window.show()
 
+    def open_config(self):
+        # Open Config Window
+        self.config_window = ConfigWindow(self, self.viewer)
+        self.config_window.show()
+        # TODO: Make it so that you cannot open more than one config window
+
     @QtCore.pyqtSlot(int, float, object)
     def on_vid_metadata_change(self, length: int, fps: int, resolution: Tuple[int, int]):
         self.slider_bottom.setMinimum(1)
@@ -252,12 +259,16 @@ class MainWindow(QtWidgets.QMainWindow):
     # Slider Interactions
     @QtCore.pyqtSlot()
     def slider_pressed(self):
+        self._video_playing = self.viewer.is_playing()
         self.viewer.pause()
 
     @QtCore.pyqtSlot()
     def slider_value_final(self):
         frame = self.slider_bottom.value()
         self.viewer.seek_frame(frame-1)
+        if self._video_playing:
+            self.viewer.play()
+            self._video_playing = False
 
     @QtCore.pyqtSlot(int)
     def slider_on_frame_change(self, frame: int):

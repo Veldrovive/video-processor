@@ -207,6 +207,9 @@ class ImageViewer(QtWidgets.QGraphicsView):
             return True
         return False
 
+    def is_playing(self):
+        return self._playback_timer.isActive()
+
     def set_playback_speed(self, speed: float) -> bool:
         curr_status = self._playback_timer.isActive()
         if curr_status:
