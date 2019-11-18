@@ -8,9 +8,10 @@
 
 
 ## Basic Usage:
-1. Save your video file into some folder and put your landmark csv in the same folder. These must have the same base name for the program to work.
-2. When the app is opened, it will display only tooling. To process a video, use `ctl+f` or open the `file` menu and select `Load Video File`. This will open the video file and landmarks.
-3. Once you do the editing you want, press `ctl+s` or open the file menu and select `Save Landmark Edits` to save a new csv.
+1. Open the app by running `python vidProc.py`
+2. Save your video file into some folder and put your landmark csv in the same folder. These must have the same base name for the program to work.
+3. When the app is opened, it will display only tooling. To process a video, use `ctl+f` or open the `file` menu and select `Load Video File`. This will open the video file and landmarks.
+4. Once you do the editing you want, press `ctl+s` or open the file menu and select `Save Landmark Edits` to save a new csv.
 
 Playback Speed: This can be changed by using the config menu that pops up with the app.
 Zooming: Use your scroll wheel to zoom in and out from the video.
