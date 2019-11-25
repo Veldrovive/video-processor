@@ -1,4 +1,4 @@
-from PyQt5 import QtWidgets, QtGui, QtCore, uic
+from PyQt5 import QtWidgets, QtGui, uic
 import vidViewer
 import utils
 
@@ -30,7 +30,6 @@ class ConfigWindow(QtWidgets.QMainWindow):
         print("Setting color to:", color.getRgb()[:-1])
 
     def on_speed_change(self, speed: float):
-        print("Changing playback speed to:", speed)
         if self._view is not None:
             self._view.set_playback_speed(speed)
 

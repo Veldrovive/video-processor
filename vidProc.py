@@ -1,7 +1,6 @@
 import os
 import sys
 import cv2
-import numpy as np
 import pandas as pd
 from typing import Tuple
 
@@ -32,7 +31,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Initialize Widgets
         self.viewer = vidViewer.ImageViewer()
-        self.viewer.set_max_size((400, 800))
         self.viewer.frame_change_signal.connect(self.slider_on_frame_change)
         self.viewer.metadata_update_signal.connect(self.on_vid_metadata_change)
         self.viewer.point_moved_signal.connect(self.on_point_moving)
@@ -87,7 +85,7 @@ class MainWindow(QtWidgets.QMainWindow):
         save_csv_edits.setShortcut("Ctrl+S")
         save_csv_edits.setStatusTip('Save your edits to the csv file')
         # TODO: Make this robust to saving before opening
-        save_csv_edits.triggered.connect(lambda a: self.viewer.save_edits(self._file_path[:-3]+"csv"))
+        save_csv_edits.triggered.connect(lambda: self.viewer.save_edits(self._file_path[:-3]+"csv"))
 
         load_video = file_menu.addAction("Open Config")
         load_video.setShortcut("Ctrl+O")
@@ -104,12 +102,12 @@ class MainWindow(QtWidgets.QMainWindow):
         play_video = video_menu.addAction("Play Video")
         play_video.setShortcut("Ctrl+P")
         play_video.setStatusTip('Play video at given playback speed')
-        play_video.triggered.connect(lambda a: self.viewer.play())
+        play_video.triggered.connect(lambda: self.viewer.play())
 
         stop_video = video_menu.addAction("Stop Video")
         stop_video.setShortcut("Ctrl+L")
         stop_video.setStatusTip('Stop video playback')
-        stop_video.triggered.connect(lambda a: self.viewer.pause())
+        stop_video.triggered.connect(lambda: self.viewer.pause())
 
         jump_to_frame = video_menu.addAction("Jump to Frame")
         jump_to_frame.setShortcut("Ctrl+J")
@@ -159,22 +157,22 @@ class MainWindow(QtWidgets.QMainWindow):
         play_action = QtWidgets.QAction('Play', self)
         play_action.setShortcut('Shift+S')
         play_action.setIcon(QtGui.QIcon('./icons/play-arrow.png'))
-        play_action.triggered.connect(lambda a: self.viewer.play())
+        play_action.triggered.connect(lambda: self.viewer.play())
 
         stop_action = QtWidgets.QAction('Stop', self)
         stop_action.setShortcut('Shift+Z')
         stop_action.setIcon(QtGui.QIcon('./icons/pause.png'))
-        stop_action.triggered.connect(lambda a: self.viewer.pause())
+        stop_action.triggered.connect(lambda: self.viewer.pause())
 
         fastforward_action = QtWidgets.QAction('Jump Forward', self)
         fastforward_action.setShortcut('Shift+D')
         fastforward_action.setIcon(QtGui.QIcon('./icons/fast-forward.png'))
-        fastforward_action.triggered.connect(lambda a: self.viewer.jump_frames(1))
+        fastforward_action.triggered.connect(lambda: self.viewer.jump_frames(1))
 
         rewind_action = QtWidgets.QAction('Jump Back', self)
         rewind_action.setShortcut('Shift+A')
         rewind_action.setIcon(QtGui.QIcon('./icons/rewind.png'))
-        rewind_action.triggered.connect(lambda a: self.viewer.jump_frames(-1))
+        rewind_action.triggered.connect(lambda: self.viewer.jump_frames(-1))
 
         # spacer widget for left
         left_spacer = QtWidgets.QWidget(self)
@@ -216,16 +214,16 @@ class MainWindow(QtWidgets.QMainWindow):
             filename = os.path.normpath(filename)
             self._file_path = filename
             landmark_file = filename[:-3] + 'csv'
+            self.open_video_file(filename)
             if os.path.exists(landmark_file):
                 self.open_landmark_file(landmark_file)
-            self.open_video_file(filename)
 
     def open_video_file(self, file: str) -> bool:
         try:
             vid_cap = cv2.VideoCapture(file)
         except cv2.error as e:
             return False
-        self.viewer.set_vid_capture(vid_cap)
+        self.viewer.set_reader(vid_cap)
         return True
 
     def open_landmark_file(self, file: str) -> bool:
@@ -247,6 +245,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config_window = ConfigWindow(self, self.viewer)
         self.config_window.show()
         # TODO: Make it so that you cannot open more than one config window
+
+    # Events:
+    def resizeEvent(self, event):
+        self.viewer.fitInView()
 
     @QtCore.pyqtSlot(int, float, object)
     def on_vid_metadata_change(self, length: int, fps: int, resolution: Tuple[int, int]):
@@ -282,13 +284,18 @@ class MainWindow(QtWidgets.QMainWindow):
     def on_point_moving(self, moving: bool, landmark: utils.Landmark):
         if moving:
             # Then a point has just been picked up
-            self.move_landmark_popup = MoveLandmarkWindow(self, view=self.viewer, landmark=landmark)
-            self.move_landmark_popup.show()
-            self.raise_()
-            self.activateWindow()
+            # TODO: Reuse the same popup to reduce the time it takes to show
+            # self.move_landmark_popup = MoveLandmarkWindow(self, view=self.viewer, landmark=landmark)
+            # self.move_landmark_popup.show()
+            # self.raise_()
+            # self.activateWindow()
+            pass
         else:
             # Then a point has just been placed
-            self.move_landmark_popup.close()
+            try:
+                self.move_landmark_popup.close()
+            except AttributeError as e:
+                pass
 
 
 if __name__ == '__main__':
@@ -303,5 +310,6 @@ if __name__ == '__main__':
     app.setStyle(QtWidgets.QStyleFactory.create('Cleanlooks'))
 
     GUI = MainWindow()
-    GUI.show()
+    # GUI.show()
+    GUI.showMaximized()
     app.exec_()

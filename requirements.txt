@@ -2,3 +2,4 @@ numpy
 pandas
 PyQt5
 scipy
+opencv-python
