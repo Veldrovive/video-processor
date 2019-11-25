@@ -21,6 +21,7 @@ class FrameBuffer(QtCore.QThread):
     _target_frame: int = 0
     _curr_frame: int = 0
     _max_frame: int = -100
+    _resolution: Tuple[int, int] = (-1, -1)
 
     _landmarks: Optional[pd.DataFrame] = None
     _landmark_features: Optional[utils.LandmarkFeatures] = None
@@ -54,6 +55,7 @@ class FrameBuffer(QtCore.QThread):
     def set_reader(self, reader: cv2.VideoCapture) -> bool:
         self._reader = reader
         self._max_frame = int(self._reader.get(7)) - 1
+        self._resolution = (int(self._reader.get(3)), int(self._reader.get(4)))
         return True
 
     def set_landmarks(self, landmarks: pd.DataFrame) -> bool:
@@ -125,7 +127,7 @@ class FrameBuffer(QtCore.QThread):
         curr_landmarks = None
         if landmarks is not None and not landmarks.empty:
             curr_landmarks = utils.landmark_frame_to_shapes(landmarks, self._landmark_features)
-            marked_frame = utils.markup_image(frame, curr_landmarks, self._landmark_features)
+            marked_frame = utils.markup_image(frame, curr_landmarks, self._landmark_features, resolution=self._resolution)
         return marked_frame, curr_landmarks
 
     def read_frames(self, start: int, num_frames: int, insert_pos: Position) -> bool:

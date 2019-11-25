@@ -82,7 +82,8 @@ def landmark_frame_to_shapes(landmark_frame: pd.DataFrame, features: LandmarkFea
 
 def markup_image(img: np.ndarray,
                  face_landmarks: FaceLandmarks = FaceLandmarks(),
-                 landmark_features: LandmarkFeatures = LandmarkFeatures()
+                 landmark_features: LandmarkFeatures = LandmarkFeatures(),
+                 resolution: Tuple[int, int] = (1920, 1080)
                  ):
     color_override = landmark_features.color_overrides
     excluded_landmarks = landmark_features.excluded
@@ -107,7 +108,7 @@ def markup_image(img: np.ndarray,
                 landmark_color = color
 
             if excluded_landmarks is None or landmark.index not in excluded_landmarks:
-                add_landmark_indicator(img, landmark, landmark_color)
+                add_landmark_indicator(img, landmark, landmark_color, resolution)
 
     lines = face_landmarks.lines
     for line in lines:
@@ -120,14 +121,16 @@ def markup_image(img: np.ndarray,
     cv2.rectangle(img, bounding_box.point2, bounding_box.point1, (255, 0, 0), 4)
     return img
 
-def add_landmark_indicator(frame, landmark, color):
-    cv2.circle(img=frame, center=landmark.location, radius=5,
+def add_landmark_indicator(frame, landmark, color, resolution: Tuple[int, int]):
+    max_side = max(resolution)
+    circle_rad = int(max_side/350)
+    cv2.circle(img=frame, center=landmark.location, radius=circle_rad,
                color=color, thickness=-1)
     cv2.putText(frame,
                 str(landmark.index),
                 (landmark.location[0] - 2, landmark.location[1] - 2),
                 cv2.FONT_HERSHEY_DUPLEX,
-                0.125 * 5,
+                0.125 * circle_rad,
                 (0, 0, 0), 1
                 )
 
