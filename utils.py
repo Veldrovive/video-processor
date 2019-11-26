@@ -79,11 +79,14 @@ def landmark_frame_to_shapes(landmark_frame: pd.DataFrame, features: LandmarkFea
 
     return face_landmarks
 
+def rescale_pos(loc: Tuple[int, int], scale_factor: float) -> Tuple[int, ...]:
+    return tuple([int(coord*scale_factor) for coord in loc])
 
 def markup_image(img: np.ndarray,
                  face_landmarks: FaceLandmarks = FaceLandmarks(),
                  landmark_features: LandmarkFeatures = LandmarkFeatures(),
-                 resolution: Tuple[int, int] = (1920, 1080)
+                 resolution: Tuple[int, int] = (1920, 1080),
+                 scale_factor: float = 1
                  ):
     color_override = landmark_features.color_overrides
     excluded_landmarks = landmark_features.excluded
@@ -108,7 +111,7 @@ def markup_image(img: np.ndarray,
                 landmark_color = color
 
             if excluded_landmarks is None or landmark.index not in excluded_landmarks:
-                add_landmark_indicator(img, landmark, landmark_color, resolution)
+                add_landmark_indicator(img, landmark, landmark_color, resolution, scale_factor)
 
     lines = face_landmarks.lines
     for line in lines:
@@ -118,17 +121,18 @@ def markup_image(img: np.ndarray,
             cv2.line(img, point_one, point_two, (0, 255, 0), 3)
 
     bounding_box = face_landmarks.bounding_box
-    cv2.rectangle(img, bounding_box.point2, bounding_box.point1, (255, 0, 0), 4)
+    cv2.rectangle(img, rescale_pos(bounding_box.point2, scale_factor), rescale_pos(bounding_box.point1, scale_factor), (255, 0, 0), 4)
     return img
 
-def add_landmark_indicator(frame, landmark, color, resolution: Tuple[int, int]):
-    max_side = max(resolution)
-    circle_rad = int(max_side/350)
-    cv2.circle(img=frame, center=landmark.location, radius=circle_rad,
+def add_landmark_indicator(frame, landmark, color, resolution: Tuple[int, int], scale_factor: float):
+    max_side = max(resolution)*scale_factor
+    circle_rad = int(max_side/450)
+    true_loc = rescale_pos(landmark.location, scale_factor)
+    cv2.circle(img=frame, center=true_loc, radius=circle_rad,
                color=color, thickness=-1)
     cv2.putText(frame,
                 str(landmark.index),
-                (landmark.location[0] - 2, landmark.location[1] - 2),
+                (true_loc[0] - 2, true_loc[1] - 2),
                 cv2.FONT_HERSHEY_DUPLEX,
                 0.125 * circle_rad,
                 (0, 0, 0), 1
