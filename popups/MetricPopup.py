@@ -11,8 +11,8 @@ class MetricCalc(QtCore.QThread):
     _distances = Dict[str, List[float]]
     _areas = Dict[str, List[float]]
 
-    frame_done_signal = QtCore.pyqtSignal(int, float) # Emits the index of the frame as well as the percent complete
-    metrics_complete_signal = QtCore.pyqtSignal(object) # Emits the results of the metrics as a dataframe
+    frame_done_signal = QtCore.pyqtSignal(int, float)  # Emits the index of the frame as well as the percent complete
+    metrics_complete_signal = QtCore.pyqtSignal(object)  # Emits the results of the metrics as a dataframe
 
     def __init__(self, metrics=None, landmarks: pd.DataFrame=None):
         super(MetricCalc, self).__init__()
@@ -43,7 +43,7 @@ class MetricCalc(QtCore.QThread):
             for landmark in landmarks:
                 landmark_cols.extend([f"landmark_{landmark.index-1}_x", f"landmark_{landmark.index-1}_y"])
             positions = list(zip(*[self._landmarks[col] for col in landmark_cols]))
-            coords = [[(int(frame_pos[2*i]), int(frame_pos[2*i+1])) for i in range(int(len(frame_pos)/2))] for frame_pos in positions]
+            coords = [[(int(round(frame_pos[2*i])), int(round(frame_pos[2*i+1]))) for i in range(int(len(frame_pos)/2))] for frame_pos in positions]
 
             measures = []
             for frame_positions in coords:

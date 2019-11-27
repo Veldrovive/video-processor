@@ -11,9 +11,13 @@ class Position(Enum):
     BEG = 0
     END = 1
 
-class Mode(Enum):
+class InteractionMode(Enum):
     EDIT = 1
     SELECT = 2
+
+class MouseMode(Enum):
+    PAN = 1
+    DRAG = 2
 
 class MetricType(Enum):
     LENGTH = 1
@@ -35,8 +39,13 @@ class FaceLandmarks:
     landmarks: Dict[str, List[Landmark]] = field(default_factory=dict)
 
 @dataclass
+class ShowStatus:
+    landmarks: bool = True
+    bounding_box: bool = True
+    metrics: bool = True
+@dataclass
 class LandmarkFeatures:
-    show: bool = True
+    show: ShowStatus = field(default_factory=ShowStatus)
     groups: Dict[str, List[int]] = field(default_factory=dict)
     selected: List[int] = field(default_factory=list)
     excluded: List[int] = field(default_factory=list)
@@ -54,8 +63,8 @@ def landmark_frame_to_shapes(landmark_frame: pd.DataFrame, features: LandmarkFea
     shape_defs = features.groups
     bounding_values = landmark_frame[["bbox_top_x", "bbox_top_y", "bbox_bottom_x", "bbox_bottom_y"]].values[0]
     bounding_box = BoundingBox(
-        (int(bounding_values[0]), int(bounding_values[1])),
-        (int(bounding_values[2]), int(bounding_values[3]))
+        (int(round(bounding_values[0])), int(round(bounding_values[1]))),
+        (int(round(bounding_values[2])), int(round(bounding_values[3])))
     )
     face_landmarks = FaceLandmarks(bounding_box, [], {})
 
@@ -113,47 +122,52 @@ def markup_image(img: np.ndarray,
     h, w, _ = img.shape
     base_colors = config.group_colors
 
-    lines = face_landmarks.lines
-    for line in lines:
-        for i in range(len(line) - 1):
-            point_one = tuple(
-                [int(coord * scale_factor) for coord in line[i].location])
-            point_two = tuple(
-                [int(coord * scale_factor) for coord in line[i + 1].location])
-            cv2.line(img, point_one, point_two, config.highlight_color, 1)
+    if landmark_features.show.bounding_box:
+        bounding_box = face_landmarks.bounding_box
+        cv2.rectangle(img, rescale_pos(bounding_box.point2, scale_factor),
+                      rescale_pos(bounding_box.point1, scale_factor), (255, 0, 0),
+                      2)
 
-    for i, group in enumerate(face_landmarks.landmarks):
-        if group in base_colors:
-            # TODO: Make config configurable
-            color = base_colors[group]
-        else:
-            r_seed = sum([ord(s) for s in group])
-            np.random.seed(r_seed)
-            color = [int(i) for i in np.random.randint(0, 256, 3)]
-        landmarks = face_landmarks.landmarks[group]
-        for landmark in landmarks:
-            # TODO: get the size automatically so it is not fixed
-            # TODO: Numpy types dont seem to work for color, fix that
-            try:
-                override_pos = color_override[0].index(landmark.index)
-                landmark_color = color_override[1][override_pos]
-            except (ValueError, IndexError) as e:
-                landmark_color = color
+    if landmark_features.show.metrics:
+        lines = face_landmarks.lines
+        for line in lines:
+            for i in range(len(line) - 1):
+                point_one = tuple(
+                    [int(round(coord * scale_factor)) for coord in line[i].location])
+                point_two = tuple(
+                    [int(round(coord * scale_factor)) for coord in line[i + 1].location])
+                cv2.line(img, point_one, point_two, config.highlight_color, 1)
 
-            if landmark.index in landmark_features.selected:
+    if landmark_features.show.landmarks:
+        for i, group in enumerate(face_landmarks.landmarks):
+            if group in base_colors:
                 # TODO: Make config configurable
-                landmark_color = config.highlight_color
+                color = base_colors[group]
+            else:
+                r_seed = sum([ord(s) for s in group])
+                np.random.seed(r_seed)
+                color = [int(i) for i in np.random.randint(0, 256, 3)]
+            landmarks = face_landmarks.landmarks[group]
+            for landmark in landmarks:
+                # TODO: get the size automatically so it is not fixed
+                # TODO: Numpy types dont seem to work for color, fix that
+                try:
+                    override_pos = color_override[0].index(landmark.index)
+                    landmark_color = color_override[1][override_pos]
+                except (ValueError, IndexError) as e:
+                    landmark_color = color
 
-            if excluded_landmarks is None or landmark.index not in excluded_landmarks:
-                add_landmark_indicator(img, landmark, landmark_color, resolution, scale_factor)
+                if landmark.index in landmark_features.selected:
+                    # TODO: Make config configurable
+                    landmark_color = config.highlight_color
 
-    bounding_box = face_landmarks.bounding_box
-    cv2.rectangle(img, rescale_pos(bounding_box.point2, scale_factor), rescale_pos(bounding_box.point1, scale_factor), (255, 0, 0), 4)
+                if excluded_landmarks is None or landmark.index not in excluded_landmarks:
+                    add_landmark_indicator(img, landmark, landmark_color, resolution, scale_factor)
     return img
 
 def add_landmark_indicator(frame, landmark, color, resolution: Tuple[int, int], scale_factor: float):
     max_side = max(resolution)*scale_factor
-    circle_rad = int(max_side/450)
+    circle_rad = int(round(max_side/450))
     true_loc = rescale_pos(landmark.location, scale_factor)
     cv2.circle(img=frame, center=true_loc, radius=circle_rad,
                color=color, thickness=-1)

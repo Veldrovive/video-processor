@@ -70,6 +70,7 @@ class FrameBuffer(QtCore.QThread):
         self._buffer = [None for i in range(self._buffer_length)]
         #TODO: This lags a lot. Figure that out
         # self.set_frame(0)
+        # self._force_update = True
         self.read_frames(-1*self._buffer_radius, self._buffer_length, utils.Position.BEG)
         self.frame_changed_signal.emit(self._buffer[self._buffer_radius])
         return True
@@ -232,7 +233,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
     _video_fps: int = -1
     _playback_speed: float = 1
     _resolution: Tuple[int, int] = (-1, -1)  # Stored as (width, height)
-    _min_dim = 1080
+    _min_dim = 1280
     _scale_factor = 1
 
     _frame_buffer: FrameBuffer = None
@@ -245,7 +246,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
 
     _metrics: List[utils.Metric] = []
 
-    _mode: utils.Mode = utils.Mode.EDIT
+    _mode: utils.InteractionMode = utils.InteractionMode.EDIT
 
     frame_change_signal = QtCore.pyqtSignal(int) # Emitted when frame number changes
     playback_change_signal = QtCore.pyqtSignal(bool) # Emitted when video is paused or played
@@ -343,21 +344,36 @@ class ImageViewer(QtWidgets.QGraphicsView):
         self._landmark_features = utils.LandmarkFeatures()
         groups = self._landmark_features.groups
         groups["face"] = list(range(1, 69))
-        self.add_to_group("right_eye", list(range(37, 42 + 1)))
-        self.add_to_group("left_eye", list(range(43, 48 + 1)))
-        self.add_to_group("nose", list(range(28, 36 + 1)))
-        self.add_to_group("inner_mouth", list(range(61, 68 + 1)))
-        self.add_to_group("outer_mouth", list(range(49, 60 + 1)))
-        self.add_to_group("right_eyebrow", list(range(18, 22 + 1)))
-        self.add_to_group("left_eyebrow", list(range(23, 27 + 1)))
-        self.add_to_group("chin_outline", list(range(1, 17 + 1)))
+        # self.add_to_group("right_eye", list(range(37, 42 + 1)))
+        # self.add_to_group("left_eye", list(range(43, 48 + 1)))
+        # self.add_to_group("nose", list(range(28, 36 + 1)))
+        # self.add_to_group("inner_mouth", list(range(61, 68 + 1)))
+        # self.add_to_group("outer_mouth", list(range(49, 60 + 1)))
+        # self.add_to_group("right_eyebrow", list(range(18, 22 + 1)))
+        # self.add_to_group("left_eyebrow", list(range(23, 27 + 1)))
+        # self.add_to_group("chin_outline", list(range(1, 17 + 1)))
+        self.add_to_group("lower_eye", [41, 42, 48, 47])
+        self.add_to_group("upper_mouth", [62, 63, 64])
+        self.add_to_group("lower_mouth", [66, 67, 68])
         return True
 
     def toggle_landmarks(self) -> bool:
-        self._landmark_features.show = not self._landmark_features.show
+        self._landmark_features.show.landmarks = not self._landmark_features.show.landmarks
         if not self._frame_buffer.is_playing():
-            self._frame_buffer.update_curr_frame(remark=False)
-        return self._landmark_features.show
+            self._frame_buffer.update_curr_frame(remark=True)
+        return self._landmark_features.show.landmarks
+
+    def toggle_bounding_box(self) -> bool:
+        self._landmark_features.show.bounding_box = not self._landmark_features.show.bounding_box
+        if not self._frame_buffer.is_playing():
+            self._frame_buffer.update_curr_frame(remark=True)
+        return self._landmark_features.show.bounding_box
+
+    def toggle_metrics(self) -> bool:
+        self._landmark_features.show.metrics = not self._landmark_features.show.metrics
+        if not self._frame_buffer.is_playing():
+            self._frame_buffer.update_curr_frame(remark=True)
+        return self._landmark_features.show.metrics
 
     def get_groups(self) -> Dict[str, List[int]]:
         return self._landmark_features.groups.copy()
@@ -382,7 +398,8 @@ class ImageViewer(QtWidgets.QGraphicsView):
         if frame_info is None:
             return False
         frame_num, frame, marked_frame, self._current_landmarks = frame_info
-        frame = marked_frame if marked_frame is not None and self._landmark_features.show else frame
+        # frame = marked_frame if marked_frame is not None and self._landmark_features.show.landmarks else frame
+        frame = marked_frame if marked_frame is not None else frame
         self.frame_change_signal.emit(frame_num)
         self.set_display(frame)
         return True
@@ -466,7 +483,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
         if key == QtCore.Qt.Key_Right:
             self.jump_frames(1)
         if key == QtCore.Qt.Key_Shift:
-            self._mode = utils.Mode.SELECT
+            self._mode = utils.InteractionMode.SELECT
         if key == QtCore.Qt.Key_1:
             self.create_metric(utils.MetricType.LENGTH)
         if key == QtCore.Qt.Key_2:
@@ -476,6 +493,13 @@ class ImageViewer(QtWidgets.QGraphicsView):
         if key == QtCore.Qt.Key_0:
             self.remove_metric()
 
+        if key == QtCore.Qt.Key_B:
+            self.toggle_bounding_box()
+        if key == QtCore.Qt.Key_M:
+            self.toggle_metrics()
+        if key == QtCore.Qt.Key_L:
+            self.toggle_landmarks()
+
         if key not in self._held_keys:
             self._held_keys.append(key)
 
@@ -483,18 +507,18 @@ class ImageViewer(QtWidgets.QGraphicsView):
         key = event.key()
         if key == QtCore.Qt.Key_Shift:
             self.setDragMode(QtWidgets.QGraphicsView.NoDrag)
-            self._mode = utils.Mode.EDIT
+            self._mode = utils.InteractionMode.EDIT
         if key in self._held_keys:
             self._held_keys.remove(key)
 
     def mousePressEvent(self, event):
         scene_pos = self.mapToScene(event.pos())
         # TODO: Don't round values
-        mouse_pos = (int(scene_pos.toPoint().x()/self._scale_factor), int(scene_pos.toPoint().y()/self._scale_factor))
-        if self._mode == utils.Mode.EDIT:
+        mouse_pos = (scene_pos.toPoint().x()/self._scale_factor, scene_pos.toPoint().y()/self._scale_factor)
+        if self._mode == utils.InteractionMode.EDIT:
             self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
             self.edit_locations(mouse_pos, event.button())
-        if self._mode == utils.Mode.SELECT:
+        if self._mode == utils.InteractionMode.SELECT:
             self.setDragMode(QtWidgets.QGraphicsView.RubberBandDrag)
             self._selected_area[0] = mouse_pos
         QtWidgets.QGraphicsView.mousePressEvent(self, event)
@@ -502,9 +526,9 @@ class ImageViewer(QtWidgets.QGraphicsView):
     def mouseReleaseEvent(self, event):
         self.setDragMode(QtWidgets.QGraphicsView.NoDrag)
         scene_pos = self.mapToScene(event.pos())
-        mouse_pos = (int(scene_pos.toPoint().x() / self._scale_factor),
-                     int(scene_pos.toPoint().y() / self._scale_factor))
-        if self._mode == utils.Mode.SELECT:
+        mouse_pos = (scene_pos.toPoint().x() / self._scale_factor,
+                     scene_pos.toPoint().y() / self._scale_factor)
+        if self._mode == utils.InteractionMode.SELECT:
             if QtCore.Qt.Key_Control not in self._held_keys:
                 self._selected_landmarks = []
             self._selected_area[1] = mouse_pos
