@@ -8,6 +8,7 @@ from scipy.spatial.distance import cdist
 import utils
 
 from popups.MetricPopup import MetricWindow
+from popups.MetricCreationPopup import MetricCreationWindow
 
 class FrameBuffer(QtCore.QThread):
     _buffer: list
@@ -136,7 +137,7 @@ class FrameBuffer(QtCore.QThread):
         if self._scale_factor != 1:
             frame = cv2.resize(frame, None, fx=self._scale_factor, fy=self._scale_factor, interpolation = cv2.INTER_CUBIC)
         # frame = cv2.blur(frame, (3, 3))
-        frame = cv2.GaussianBlur(frame, (5, 5), 0)
+        frame = cv2.GaussianBlur(frame, (3, 3), 0)
         # frame = cv2.medianBlur(frame, 3)
         return frame
 
@@ -171,6 +172,7 @@ class FrameBuffer(QtCore.QThread):
 
     def update(self) -> bool:
         if self._force_update:
+            #TODO: First frame landmark changes fail
             index, frame, marked_frame, landmarks = self._buffer[self._buffer_radius]
             marked_up, new_landmarks = self.get_marked_frame(frame, index)
             self._buffer[self._buffer_radius] = (index, frame, marked_up, new_landmarks)
@@ -241,7 +243,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
     _selected_landmarks: List[utils.Landmark] = []
     _held_keys: List[object] = []
 
-    _metrics: List[Tuple[utils.Metric, List[utils.Landmark], str]] = []
+    _metrics: List[utils.Metric] = []
 
     _mode: utils.Mode = utils.Mode.EDIT
 
@@ -249,6 +251,9 @@ class ImageViewer(QtWidgets.QGraphicsView):
     playback_change_signal = QtCore.pyqtSignal(bool) # Emitted when video is paused or played
     metadata_update_signal = QtCore.pyqtSignal(int, float, object) # Emits length, frame rate, resolution
     point_moved_signal = QtCore.pyqtSignal(bool, utils.Landmark) # Emitted when a landmark is moved
+
+    _metric_creation_window: MetricCreationWindow = None
+    _metric_popup: MetricWindow = None
 
     def __init__(self, reader: cv2.VideoCapture=None, landmarks: pd.DataFrame=None):
         super(ImageViewer, self).__init__()
@@ -463,9 +468,9 @@ class ImageViewer(QtWidgets.QGraphicsView):
         if key == QtCore.Qt.Key_Shift:
             self._mode = utils.Mode.SELECT
         if key == QtCore.Qt.Key_1:
-            self.create_metric(utils.Metric.LENGTH)
+            self.create_metric(utils.MetricType.LENGTH)
         if key == QtCore.Qt.Key_2:
-            self.create_metric(utils.Metric.AREA)
+            self.create_metric(utils.MetricType.AREA)
         if key == QtCore.Qt.Key_3:
             self.analyze_metrics()
         if key == QtCore.Qt.Key_0:
@@ -484,6 +489,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
 
     def mousePressEvent(self, event):
         scene_pos = self.mapToScene(event.pos())
+        # TODO: Don't round values
         mouse_pos = (int(scene_pos.toPoint().x()/self._scale_factor), int(scene_pos.toPoint().y()/self._scale_factor))
         if self._mode == utils.Mode.EDIT:
             self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
@@ -568,31 +574,32 @@ class ImageViewer(QtWidgets.QGraphicsView):
     def draw_metrics(self) -> bool:
         self._landmark_features.lines = []
         for metric in self._metrics:
-            type = metric[0]
-            landmarks = [landmark.index for landmark in metric[1]]
-            if type == utils.Metric.AREA:
-                landmarks += [metric[1][0].index]
+            type = metric.type
+            landmarks = [landmark.index for landmark in metric.landmarks]
+            if type == utils.MetricType.AREA:
+                landmarks += [metric.landmarks[0].index]
             self._landmark_features.lines.append(landmarks)
         self._frame_buffer.update_curr_frame()
         return True
 
-    def create_metric(self, type: utils.Metric, name: str=None) -> bool:
+    def create_metric(self, type: utils.MetricType, name: str=None) -> bool:
         if len(self._selected_landmarks) < 2:
             return False
         if name is None:
             name = f"{type.name}:{','.join([str(landmark.index) for landmark in self._selected_landmarks])}"
-        self._metrics.append((
-            type,
-            self._selected_landmarks[:],
-            name
-        ))
+        metric = utils.Metric(name, type, self._selected_landmarks[:])
+        self._metrics.append(metric)
+        if self._metric_creation_window is not None:
+            self._metric_creation_window.close()
+        self._metric_creation_window = MetricCreationWindow(self, metric, self._metrics)
+        self._metric_creation_window.show()
         self.draw_metrics()
         return True
 
     def remove_metric(self) -> bool:
         # Removes the metric represented by the selected landmarks
         for i, metric in enumerate(self._metrics):
-            landmarks = [landmark.index for landmark in metric[1]]
+            landmarks = [landmark.index for landmark in metric.landmarks]
             all_included = True
             for landmark in self._selected_landmarks:
                 all_included = all_included and landmark.index in landmarks
@@ -617,7 +624,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
         pass
 
     def on_metrics_done(self, metrics: pd.DataFrame):
-        metrics.to_csv("./movement_analysis/metrics.csv")
+        # metrics.to_csv("./movement_analysis/metrics.csv")
         return
 
     def save_edits(self, save_path: str) -> bool:

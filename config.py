@@ -1,6 +1,7 @@
 from typing import Dict, Tuple
 from dataclasses import dataclass, field
 
+#TODO: Mouth and Eyes top/bottom different color
 group_colors = {
     "left_eye": (230, 30, 30),
     "right_eye": (230, 30, 30),

@@ -7,6 +7,18 @@ import config
 from enum import Enum
 
 
+class Position(Enum):
+    BEG = 0
+    END = 1
+
+class Mode(Enum):
+    EDIT = 1
+    SELECT = 2
+
+class MetricType(Enum):
+    LENGTH = 1
+    AREA = 2
+
 @dataclass
 class BoundingBox:
     point1: Tuple[int, int] = (-1, -1)
@@ -31,17 +43,11 @@ class LandmarkFeatures:
     lines: List[List[int]] = field(default_factory=list)
     color_overrides: Tuple[List[int], List[Tuple[int, int, int]]] = field(default_factory=list)
 
-class Position(Enum):
-    BEG = 0
-    END = 1
-
-class Mode(Enum):
-    EDIT = 1
-    SELECT = 2
-
-class Metric(Enum):
-    LENGTH = 1
-    AREA = 2
+@dataclass
+class Metric:
+    name: str = ""
+    type: MetricType = MetricType.LENGTH
+    landmarks: List[Landmark] = field(default_factory=list)
 
 
 def landmark_frame_to_shapes(landmark_frame: pd.DataFrame, features: LandmarkFeatures) -> Optional[FaceLandmarks]:
