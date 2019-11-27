@@ -12,9 +12,12 @@ group_colors = {
     "chin_outline": (149, 77, 158)
 }
 
+highlight_color = (247, 222, 59)
+
 @dataclass
 class GroupConfig:
     colors: Dict[str, Tuple[int, int, int]] = field(default_factory=dict)
+    highlight_color: Tuple[int, int, int] = highlight_color
 
 @dataclass
 class PlaybackConfig:

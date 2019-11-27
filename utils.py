@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import cv2
 import config
+from enum import Enum
 
 
 @dataclass
@@ -29,6 +30,18 @@ class LandmarkFeatures:
     excluded: List[int] = field(default_factory=list)
     lines: List[List[int]] = field(default_factory=list)
     color_overrides: Tuple[List[int], List[Tuple[int, int, int]]] = field(default_factory=list)
+
+class Position(Enum):
+    BEG = 0
+    END = 1
+
+class Mode(Enum):
+    EDIT = 1
+    SELECT = 2
+
+class Metric(Enum):
+    LENGTH = 1
+    AREA = 2
 
 
 def landmark_frame_to_shapes(landmark_frame: pd.DataFrame, features: LandmarkFeatures) -> Optional[FaceLandmarks]:
@@ -68,13 +81,13 @@ def landmark_frame_to_shapes(landmark_frame: pd.DataFrame, features: LandmarkFea
 
     face_landmarks.lines = []
     for line in features.lines:
-        face_landmarks.lines.append(map(
+        face_landmarks.lines.append(list(map(
             lambda landmark_index: Landmark(landmark_index, "lines", (
                     int(landmark_values[2 * (landmark_index - 1)]),
                     int(landmark_values[2 * (landmark_index - 1) + 1])
                     )
                 ), line
-            )
+            ))
         )
 
     return face_landmarks
@@ -93,8 +106,19 @@ def markup_image(img: np.ndarray,
     img = img.copy()
     h, w, _ = img.shape
     base_colors = config.group_colors
+
+    lines = face_landmarks.lines
+    for line in lines:
+        for i in range(len(line) - 1):
+            point_one = tuple(
+                [int(coord * scale_factor) for coord in line[i].location])
+            point_two = tuple(
+                [int(coord * scale_factor) for coord in line[i + 1].location])
+            cv2.line(img, point_one, point_two, config.highlight_color, 1)
+
     for i, group in enumerate(face_landmarks.landmarks):
         if group in base_colors:
+            # TODO: Make config configurable
             color = base_colors[group]
         else:
             r_seed = sum([ord(s) for s in group])
@@ -110,15 +134,12 @@ def markup_image(img: np.ndarray,
             except (ValueError, IndexError) as e:
                 landmark_color = color
 
+            if landmark.index in landmark_features.selected:
+                # TODO: Make config configurable
+                landmark_color = config.highlight_color
+
             if excluded_landmarks is None or landmark.index not in excluded_landmarks:
                 add_landmark_indicator(img, landmark, landmark_color, resolution, scale_factor)
-
-    lines = face_landmarks.lines
-    for line in lines:
-        for i in range(len(line)-1):
-            point_one = line[i].location
-            point_two = line[i+1].location
-            cv2.line(img, point_one, point_two, (0, 255, 0), 3)
 
     bounding_box = face_landmarks.bounding_box
     cv2.rectangle(img, rescale_pos(bounding_box.point2, scale_factor), rescale_pos(bounding_box.point1, scale_factor), (255, 0, 0), 4)

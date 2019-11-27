@@ -1,5 +1,4 @@
 from typing import Dict, List, Tuple, Optional
-from enum import Enum
 from PyQt5 import QtWidgets, QtGui, QtCore
 import os
 import numpy as np
@@ -8,9 +7,7 @@ import pandas as pd
 from scipy.spatial.distance import cdist
 import utils
 
-class Position(Enum):
-    BEG = 0
-    END = 1
+from popups.MetricPopup import MetricWindow
 
 class FrameBuffer(QtCore.QThread):
     _buffer: list
@@ -72,7 +69,7 @@ class FrameBuffer(QtCore.QThread):
         self._buffer = [None for i in range(self._buffer_length)]
         #TODO: This lags a lot. Figure that out
         # self.set_frame(0)
-        self.read_frames(-1*self._buffer_radius, self._buffer_length, Position.BEG)
+        self.read_frames(-1*self._buffer_radius, self._buffer_length, utils.Position.BEG)
         self.frame_changed_signal.emit(self._buffer[self._buffer_radius])
         return True
 
@@ -143,10 +140,9 @@ class FrameBuffer(QtCore.QThread):
         # frame = cv2.medianBlur(frame, 3)
         return frame
 
-
-    def read_frames(self, start: int, num_frames: int, insert_pos: Position) -> bool:
+    def read_frames(self, start: int, num_frames: int, insert_pos: utils.Position) -> bool:
         def insert(frame_obj):
-            if insert_pos == Position.BEG:
+            if insert_pos == utils.Position.BEG:
                 self._buffer.pop(0)
                 self._buffer.append(frame_obj)
             else:
@@ -193,19 +189,19 @@ class FrameBuffer(QtCore.QThread):
 
         start = 0
         read_num = 0
-        reader_pos = Position.BEG
+        reader_pos = utils.Position.BEG
         if abs(delta) >= self._buffer_length:
             start = self._target_frame-self._buffer_radius
             read_num = self._buffer_length
-            reader_pos = Position.BEG
+            reader_pos = utils.Position.BEG
         elif delta > 0:
             start = self._curr_frame+self._buffer_radius+1
             read_num = delta
-            reader_pos = Position.BEG
+            reader_pos = utils.Position.BEG
         elif delta < 0:
             start = self._target_frame-self._buffer_radius
             read_num = abs(delta)
-            reader_pos = Position.END
+            reader_pos = utils.Position.END
 
         self.read_frames(start, read_num, reader_pos)
 
@@ -217,10 +213,6 @@ class FrameBuffer(QtCore.QThread):
     def run(self):
         while self._running:
             self.update()
-
-
-class Mode(Enum):
-    EDIT = 1
 
 class ImageViewer(QtWidgets.QGraphicsView):
     _zoom_factor: float = 0.1  # Defines the zoom speed
@@ -245,8 +237,13 @@ class ImageViewer(QtWidgets.QGraphicsView):
 
     _lifted_point: Optional[utils.Landmark] = None
     _eyes_lifted: Dict[str, bool] = {"left": False, "right": False}
+    _selected_area: List[Tuple[int, int]] = [(-1, -1), (-1, -1)]
+    _selected_landmarks: List[utils.Landmark] = []
+    _held_keys: List[object] = []
 
-    _mode: Mode = Mode.EDIT
+    _metrics: List[Tuple[utils.Metric, List[utils.Landmark], str]] = []
+
+    _mode: utils.Mode = utils.Mode.EDIT
 
     frame_change_signal = QtCore.pyqtSignal(int) # Emitted when frame number changes
     playback_change_signal = QtCore.pyqtSignal(bool) # Emitted when video is paused or played
@@ -388,6 +385,16 @@ class ImageViewer(QtWidgets.QGraphicsView):
     def play(self) -> bool:
         return self._frame_buffer.play(frame_rate=self._video_fps*self._playback_speed)
 
+    def toggle_play(self) -> bool:
+        if self._frame_buffer.is_playing():
+            self._frame_buffer.pause()
+            self.playback_change_signal.emit(True)
+            return True
+        else:
+            self._frame_buffer.play()
+            self.playback_change_signal.emit(False)
+            return True
+
     def pause(self) -> bool:
         return self._frame_buffer.pause()
 
@@ -445,16 +452,57 @@ class ImageViewer(QtWidgets.QGraphicsView):
                 self._zoom = 0
                 self.fitInView()
 
+    def keyPressEvent(self, event: QtCore.QEvent):
+        key = event.key()
+        if key == QtCore.Qt.Key_Space:
+            self.toggle_play()
+        if key == QtCore.Qt.Key_Left:
+            self.jump_frames(-1)
+        if key == QtCore.Qt.Key_Right:
+            self.jump_frames(1)
+        if key == QtCore.Qt.Key_Shift:
+            self._mode = utils.Mode.SELECT
+        if key == QtCore.Qt.Key_1:
+            self.create_metric(utils.Metric.LENGTH)
+        if key == QtCore.Qt.Key_2:
+            self.create_metric(utils.Metric.AREA)
+        if key == QtCore.Qt.Key_3:
+            self.analyze_metrics()
+        if key == QtCore.Qt.Key_0:
+            self.remove_metric()
+
+        if key not in self._held_keys:
+            self._held_keys.append(key)
+
+    def keyReleaseEvent(self, event):
+        key = event.key()
+        if key == QtCore.Qt.Key_Shift:
+            self.setDragMode(QtWidgets.QGraphicsView.NoDrag)
+            self._mode = utils.Mode.EDIT
+        if key in self._held_keys:
+            self._held_keys.remove(key)
+
     def mousePressEvent(self, event):
         scene_pos = self.mapToScene(event.pos())
         mouse_pos = (int(scene_pos.toPoint().x()/self._scale_factor), int(scene_pos.toPoint().y()/self._scale_factor))
-        if self._mode == Mode.EDIT:
+        if self._mode == utils.Mode.EDIT:
+            self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
             self.edit_locations(mouse_pos, event.button())
-        self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
+        if self._mode == utils.Mode.SELECT:
+            self.setDragMode(QtWidgets.QGraphicsView.RubberBandDrag)
+            self._selected_area[0] = mouse_pos
         QtWidgets.QGraphicsView.mousePressEvent(self, event)
 
     def mouseReleaseEvent(self, event):
         self.setDragMode(QtWidgets.QGraphicsView.NoDrag)
+        scene_pos = self.mapToScene(event.pos())
+        mouse_pos = (int(scene_pos.toPoint().x() / self._scale_factor),
+                     int(scene_pos.toPoint().y() / self._scale_factor))
+        if self._mode == utils.Mode.SELECT:
+            if QtCore.Qt.Key_Control not in self._held_keys:
+                self._selected_landmarks = []
+            self._selected_area[1] = mouse_pos
+            self.select_landmarks()
         QtWidgets.QGraphicsView.mouseReleaseEvent(self, event)
 
     def get_closest_point(self, mouse_pos, distance_thresh = 6) -> Optional[utils.Landmark]:
@@ -495,6 +543,82 @@ class ImageViewer(QtWidgets.QGraphicsView):
                 self._frame_buffer.update_curr_frame()
                 self._lifted_point = None
         return True
+
+    def select_landmarks(self) -> int:
+        if self._current_landmarks is None:
+            return 0
+        all_landmarks = []
+        for group in self._current_landmarks.landmarks:
+            all_landmarks.extend(self._current_landmarks.landmarks[group])
+        selected_landmarks = []
+        x_max = max(self._selected_area[0][0], self._selected_area[1][0])
+        x_min = min(self._selected_area[0][0], self._selected_area[1][0])
+        y_max = max(self._selected_area[0][1], self._selected_area[1][1])
+        y_min = min(self._selected_area[0][1], self._selected_area[1][1])
+        for landmark in all_landmarks:
+            in_x = x_max >= landmark.location[0] >= x_min
+            in_y = y_max >= landmark.location[1] >= y_min
+            if in_x and in_y:
+                selected_landmarks.append(landmark)
+        self._selected_landmarks.extend(selected_landmarks)
+        self._landmark_features.selected = [landmark.index for landmark in self._selected_landmarks]
+        self._frame_buffer.update_curr_frame(remark=True)
+        return len(self._selected_landmarks)
+
+    def draw_metrics(self) -> bool:
+        self._landmark_features.lines = []
+        for metric in self._metrics:
+            type = metric[0]
+            landmarks = [landmark.index for landmark in metric[1]]
+            if type == utils.Metric.AREA:
+                landmarks += [metric[1][0].index]
+            self._landmark_features.lines.append(landmarks)
+        self._frame_buffer.update_curr_frame()
+        return True
+
+    def create_metric(self, type: utils.Metric, name: str=None) -> bool:
+        if len(self._selected_landmarks) < 2:
+            return False
+        if name is None:
+            name = f"{type.name}:{','.join([str(landmark.index) for landmark in self._selected_landmarks])}"
+        self._metrics.append((
+            type,
+            self._selected_landmarks[:],
+            name
+        ))
+        self.draw_metrics()
+        return True
+
+    def remove_metric(self) -> bool:
+        # Removes the metric represented by the selected landmarks
+        for i, metric in enumerate(self._metrics):
+            landmarks = [landmark.index for landmark in metric[1]]
+            all_included = True
+            for landmark in self._selected_landmarks:
+                all_included = all_included and landmark.index in landmarks
+            if all_included:
+                self._metrics.remove(metric)
+        self.draw_metrics()
+        return True
+
+    def remove_metric_by_index(self, index: int) -> bool:
+        try:
+            del self._metrics[index]
+            self.draw_metrics()
+            return True
+        except IndexError:
+            return False
+
+    def analyze_metrics(self) -> bool:
+        # Open a window that lists the metrics
+        self._metric_popup = MetricWindow(self, self._metrics, self._landmarks_editing)
+        self._metric_popup.show()
+        self._metric_popup.metric_done_signal.connect(self.on_metrics_done)
+        pass
+
+    def on_metrics_done(self, metrics: pd.DataFrame):
+        metrics.to_csv("./movement_analysis/metrics.csv")
+        return
 
     def save_edits(self, save_path: str) -> bool:
         # TODO: Make this more robust to users inputting unexpected values
