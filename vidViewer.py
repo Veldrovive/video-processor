@@ -15,7 +15,7 @@ class FrameBuffer(QtCore.QThread):
     _buffer_radius: int
     _buffer_length: int
 
-    _reader: cv2.VideoCapture
+    _reader: cv2.VideoCapture = None
     _target_frame: int = 0
     _curr_frame: int = 0
     _max_frame: int = -100
@@ -39,6 +39,7 @@ class FrameBuffer(QtCore.QThread):
         super(FrameBuffer, self).__init__()
         self._buffer_radius = buffer_radius
         self._buffer_length = 1 + 2 * buffer_radius
+        self._buffer = [None for i in range(self._buffer_length)]
 
         if reader is not None:
             self.set_reader(reader)
@@ -51,15 +52,19 @@ class FrameBuffer(QtCore.QThread):
         self._playback_timer.timeout.connect(
             lambda: self.set_frame(delta=1))
 
-    def set_reader(self, reader: cv2.VideoCapture, scale_factor: float = 1) -> bool:
+    def set_reader(self, reader: Optional[cv2.VideoCapture], scale_factor: float = 1) -> bool:
         self._reader = reader
+        if reader is None:
+            return False
         self._max_frame = int(self._reader.get(7)) - 1
         self._resolution = (int(self._reader.get(3)), int(self._reader.get(4)))
         self._scale_factor = scale_factor
         return True
 
-    def set_landmarks(self, landmarks: pd.DataFrame) -> bool:
+    def set_landmarks(self, landmarks: Optional[pd.DataFrame]) -> bool:
         self._landmarks = landmarks
+        if landmarks is None:
+            return False
         return True
 
     def set_landmark_features(self, features: utils.LandmarkFeatures) -> bool:
@@ -67,12 +72,9 @@ class FrameBuffer(QtCore.QThread):
         return True
 
     def init_buffer(self) -> bool:
-        self._buffer = [None for i in range(self._buffer_length)]
-        #TODO: This lags a lot. Figure that out
-        # self.set_frame(0)
-        # self._force_update = True
-        self.read_frames(-1*self._buffer_radius, self._buffer_length, utils.Position.BEG)
-        self.frame_changed_signal.emit(self._buffer[self._buffer_radius])
+        if self._reader is not None and self._landmarks is not None:
+            self.set_frame(0)
+            self._force_update = True
         return True
 
     def set_frame(self, index: int=None, delta: int=None) -> bool:
@@ -173,10 +175,15 @@ class FrameBuffer(QtCore.QThread):
 
     def update(self) -> bool:
         if self._force_update:
-            index, frame, marked_frame, landmarks = self._buffer[self._buffer_radius]
-            marked_up, new_landmarks = self.get_marked_frame(frame, index)
-            self.frame_changed_signal.emit((index, frame, marked_up, new_landmarks))
+            updated_current = False
+            if self._buffer[self._buffer_radius] is not None:
+                index, frame, marked_frame, landmarks = self._buffer[self._buffer_radius]
+                marked_up, new_landmarks = self.get_marked_frame(frame, index)
+                self.frame_changed_signal.emit((index, frame, marked_up, new_landmarks))
+                updated_current = True
             self.read_frames(self._curr_frame-self._buffer_radius, self._buffer_length, utils.Position.BEG)
+            if not updated_current:
+                self.frame_changed_signal.emit(self._buffer[self._buffer_radius])
             self._force_update = False
 
         if self._target_frame == self._curr_frame:
@@ -212,6 +219,10 @@ class FrameBuffer(QtCore.QThread):
             pass
         self._curr_frame = self._target_frame
 
+    def stop(self) -> bool:
+        self._running = False
+        return True
+
     def run(self):
         while self._running:
             self.update()
@@ -234,6 +245,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
     _resolution: Tuple[int, int] = (-1, -1)  # Stored as (width, height)
     _min_dim = 1280
     _scale_factor = 1
+    _resize_on_get_frame: bool = False
 
     _frame_buffer: FrameBuffer = None
 
@@ -263,12 +275,20 @@ class ImageViewer(QtWidgets.QGraphicsView):
             self.set_reader(reader)
         if landmarks is not None:
             self.set_landmarks(landmarks)
-        self.update_frame_buffer()
-        self._frame_buffer.frame_changed_signal.connect(self.on_new_frame)
         self.fitInView()
 
     def reader_is_good(self) -> bool:
         return self._reader is not None and self._reader.isOpened()
+
+    def reset_buffer(self) -> bool:
+        if self._frame_buffer is not None:
+            self._frame_buffer.stop()
+            self._frame_buffer = None
+            self._landmarks = None
+            self._landmarks_editing = None
+            self._reader = None
+            self._metrics = []
+        return True
 
     def set_reader(self, reader: cv2.VideoCapture) -> bool:
         self._reader = reader
@@ -296,6 +316,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
     def update_frame_buffer(self) -> bool:
         if self._frame_buffer is None:
             self._frame_buffer = FrameBuffer()
+            self._frame_buffer.frame_changed_signal.connect(self.on_new_frame)
         if self._landmarks_editing is not None:
             self._frame_buffer.set_landmarks(self._landmarks_editing)
         if self._landmark_features is not None:
@@ -303,6 +324,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
         if self._reader is not None:
             self._frame_buffer.set_reader(self._reader, self._scale_factor)
         try:
+            self._resize_on_get_frame = True
             self._frame_buffer.init_buffer()
         except AttributeError as e:
             pass
@@ -401,6 +423,9 @@ class ImageViewer(QtWidgets.QGraphicsView):
         frame = marked_frame if marked_frame is not None else frame
         self.frame_change_signal.emit(frame_num)
         self.set_display(frame)
+        if self._resize_on_get_frame:
+            self.fitInView()
+            self._resize_on_get_frame = False
         return True
 
     def play(self) -> bool:

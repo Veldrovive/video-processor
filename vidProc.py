@@ -214,6 +214,7 @@ class MainWindow(QtWidgets.QMainWindow):
             filename = os.path.normpath(filename)
             self._file_path = filename
             landmark_file = filename[:-3] + 'csv'
+            self.viewer.reset_buffer()
             self.open_video_file(filename)
             if os.path.exists(landmark_file):
                 self.open_landmark_file(landmark_file)
