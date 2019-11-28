@@ -12,8 +12,8 @@ class Position(Enum):
     END = 1
 
 class InteractionMode(Enum):
-    EDIT = 1
-    SELECT = 2
+    POINT = 1
+    AREA = 2
 
 class MouseMode(Enum):
     PAN = 1
@@ -53,11 +53,19 @@ class LandmarkFeatures:
     color_overrides: Tuple[List[int], List[Tuple[int, int, int]]] = field(default_factory=list)
 
 @dataclass
+class LandmarkGroup:
+    landmarks: List[Landmark] = field(default_factory=list)
+@dataclass
 class Metric:
     name: str = ""
     type: MetricType = MetricType.LENGTH
-    landmarks: List[Landmark] = field(default_factory=list)
+    landmarks: List[Union[Landmark, LandmarkGroup]] = field(default_factory=list)
 
+
+def get_centroid(points: List[Tuple[float, float]]):
+    x_avg = sum([coord[0] for coord in points])/len(points)
+    y_avg = sum([coord[1] for coord in points])/len(points)
+    return (x_avg, y_avg)
 
 def landmark_frame_to_shapes(landmark_frame: pd.DataFrame, features: LandmarkFeatures) -> Optional[FaceLandmarks]:
     shape_defs = features.groups

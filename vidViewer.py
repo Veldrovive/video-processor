@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Union
 from PyQt5 import QtWidgets, QtGui, QtCore
 import os
 import numpy as np
@@ -173,11 +173,10 @@ class FrameBuffer(QtCore.QThread):
 
     def update(self) -> bool:
         if self._force_update:
-            #TODO: First frame landmark changes fail
             index, frame, marked_frame, landmarks = self._buffer[self._buffer_radius]
             marked_up, new_landmarks = self.get_marked_frame(frame, index)
-            self._buffer[self._buffer_radius] = (index, frame, marked_up, new_landmarks)
-            self.frame_changed_signal.emit(self._buffer[self._buffer_radius])
+            self.frame_changed_signal.emit((index, frame, marked_up, new_landmarks))
+            self.read_frames(self._curr_frame-self._buffer_radius, self._buffer_length, utils.Position.BEG)
             self._force_update = False
 
         if self._target_frame == self._curr_frame:
@@ -240,13 +239,13 @@ class ImageViewer(QtWidgets.QGraphicsView):
 
     _lifted_point: Optional[utils.Landmark] = None
     _eyes_lifted: Dict[str, bool] = {"left": False, "right": False}
-    _selected_area: List[Tuple[int, int]] = [(-1, -1), (-1, -1)]
-    _selected_landmarks: List[utils.Landmark] = []
+    _mouse_positions: List[Tuple[int, int]] = [(-1, -1), (-1, -1), (-1, -1), (-1, -1)]
+    _selected_landmarks: List[Union[utils.Landmark, utils.LandmarkGroup]] = []
     _held_keys: List[object] = []
 
     _metrics: List[utils.Metric] = []
 
-    _mode: utils.InteractionMode = utils.InteractionMode.EDIT
+    _mode: utils.InteractionMode = utils.InteractionMode.POINT
 
     frame_change_signal = QtCore.pyqtSignal(int) # Emitted when frame number changes
     playback_change_signal = QtCore.pyqtSignal(bool) # Emitted when video is paused or played
@@ -483,7 +482,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
         if key == QtCore.Qt.Key_Right:
             self.jump_frames(1)
         if key == QtCore.Qt.Key_Shift:
-            self._mode = utils.InteractionMode.SELECT
+            self._mode = utils.InteractionMode.AREA
         if key == QtCore.Qt.Key_1:
             self.create_metric(utils.MetricType.LENGTH)
         if key == QtCore.Qt.Key_2:
@@ -507,7 +506,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
         key = event.key()
         if key == QtCore.Qt.Key_Shift:
             self.setDragMode(QtWidgets.QGraphicsView.NoDrag)
-            self._mode = utils.InteractionMode.EDIT
+            self._mode = utils.InteractionMode.POINT
         if key in self._held_keys:
             self._held_keys.remove(key)
 
@@ -515,12 +514,13 @@ class ImageViewer(QtWidgets.QGraphicsView):
         scene_pos = self.mapToScene(event.pos())
         # TODO: Don't round values
         mouse_pos = (scene_pos.toPoint().x()/self._scale_factor, scene_pos.toPoint().y()/self._scale_factor)
-        if self._mode == utils.InteractionMode.EDIT:
+        button = event.button()
+        self._mouse_positions[0] = mouse_pos
+        self._mouse_positions[2] = event.pos()
+        if self._mode == utils.InteractionMode.POINT:
             self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
-            self.edit_locations(mouse_pos, event.button())
-        if self._mode == utils.InteractionMode.SELECT:
+        if self._mode == utils.InteractionMode.AREA:
             self.setDragMode(QtWidgets.QGraphicsView.RubberBandDrag)
-            self._selected_area[0] = mouse_pos
         QtWidgets.QGraphicsView.mousePressEvent(self, event)
 
     def mouseReleaseEvent(self, event):
@@ -528,10 +528,16 @@ class ImageViewer(QtWidgets.QGraphicsView):
         scene_pos = self.mapToScene(event.pos())
         mouse_pos = (scene_pos.toPoint().x() / self._scale_factor,
                      scene_pos.toPoint().y() / self._scale_factor)
-        if self._mode == utils.InteractionMode.SELECT:
-            if QtCore.Qt.Key_Control not in self._held_keys:
-                self._selected_landmarks = []
-            self._selected_area[1] = mouse_pos
+        button = event.button()
+        self._mouse_positions[1] = mouse_pos
+        self._mouse_positions[3] = event.pos()
+        if self._mode == utils.InteractionMode.POINT:
+            if self._mouse_positions[2] == self._mouse_positions[3]:
+                if button == QtCore.Qt.RightButton:
+                    self.edit_locations(mouse_pos)
+                else:
+                    self.select_landmarks(mouse_pos)
+        if self._mode == utils.InteractionMode.AREA:
             self.select_landmarks()
         QtWidgets.QGraphicsView.mouseReleaseEvent(self, event)
 
@@ -550,58 +556,77 @@ class ImageViewer(QtWidgets.QGraphicsView):
         else:
             return None
 
-    def edit_locations(self, mouse_pos: Tuple[int, int], button: object) -> bool:
-        if button == QtCore.Qt.RightButton:
-            if self._lifted_point is None:
-                self._lifted_point = self.get_closest_point(mouse_pos)
-                if self._lifted_point is not None:
-                    self._landmark_features.excluded.append(self._lifted_point.index)
-                    self._frame_buffer.update_curr_frame()
-                    self.point_moved_signal.emit(True, self._lifted_point)
-                else:
-                    return False
-        if button == QtCore.Qt.LeftButton:
+    def edit_locations(self, mouse_pos: Tuple[int, int]) -> bool:
+        if self._lifted_point is None:
+            self._lifted_point = self.get_closest_point(mouse_pos)
             if self._lifted_point is not None:
-                self._lifted_point.location = mouse_pos
-                if mouse_pos[0] < 0 or mouse_pos[0] > self._resolution[0] or mouse_pos[1] < 0 or mouse_pos[1] > self._resolution[1]:
-                    return False
-                self.point_moved_signal.emit(False, self._lifted_point)
-                self._landmark_features.excluded.remove(self._lifted_point.index)
-                frame_num = self._frame_buffer.get_frame_num()
-                self._landmarks_editing.at[self._landmarks_editing["Frame_number"] == frame_num, f"landmark_{self._lifted_point.index - 1}_x"] = mouse_pos[0]
-                self._landmarks_editing.at[self._landmarks_editing["Frame_number"] == frame_num, f"landmark_{self._lifted_point.index - 1}_y"] = mouse_pos[1]
+                self._landmark_features.excluded.append(self._lifted_point.index)
                 self._frame_buffer.update_curr_frame()
-                self._lifted_point = None
+                self.point_moved_signal.emit(True, self._lifted_point)
+            else:
+                return False
+        else:
+            self._lifted_point.location = mouse_pos
+            if mouse_pos[0] < 0 or mouse_pos[0] > self._resolution[0] or mouse_pos[1] < 0 or mouse_pos[1] > self._resolution[1]:
+                return False
+            self.point_moved_signal.emit(False, self._lifted_point)
+            self._landmark_features.excluded.remove(self._lifted_point.index)
+            frame_num = self._frame_buffer.get_frame_num()
+            self._landmarks_editing.at[self._landmarks_editing["Frame_number"] == frame_num, f"landmark_{self._lifted_point.index - 1}_x"] = mouse_pos[0]
+            self._landmarks_editing.at[self._landmarks_editing["Frame_number"] == frame_num, f"landmark_{self._lifted_point.index - 1}_y"] = mouse_pos[1]
+            self._frame_buffer.update_curr_frame()
+            self._lifted_point = None
         return True
 
-    def select_landmarks(self) -> int:
-        if self._current_landmarks is None:
-            return 0
-        all_landmarks = []
-        for group in self._current_landmarks.landmarks:
-            all_landmarks.extend(self._current_landmarks.landmarks[group])
-        selected_landmarks = []
-        x_max = max(self._selected_area[0][0], self._selected_area[1][0])
-        x_min = min(self._selected_area[0][0], self._selected_area[1][0])
-        y_max = max(self._selected_area[0][1], self._selected_area[1][1])
-        y_min = min(self._selected_area[0][1], self._selected_area[1][1])
-        for landmark in all_landmarks:
-            in_x = x_max >= landmark.location[0] >= x_min
-            in_y = y_max >= landmark.location[1] >= y_min
-            if in_x and in_y:
-                selected_landmarks.append(landmark)
-        self._selected_landmarks.extend(selected_landmarks)
-        self._landmark_features.selected = [landmark.index for landmark in self._selected_landmarks]
+    def select_landmarks(self, mouse_pos: Optional[Tuple[float, float]]=None) -> int:
+        if self._mode == utils.InteractionMode.POINT:
+            selected_landmark = self.get_closest_point(mouse_pos)
+            if selected_landmark is not None:
+                self._selected_landmarks.append(selected_landmark)
+            else:
+                self._selected_landmarks = []
+        elif self._mode == utils.InteractionMode.AREA:
+            if self._current_landmarks is None:
+                return 0
+            all_landmarks = []
+            for group in self._current_landmarks.landmarks:
+                all_landmarks.extend(self._current_landmarks.landmarks[group])
+            selected_landmarks = []
+            x_max = max(self._mouse_positions[0][0], self._mouse_positions[1][0])
+            x_min = min(self._mouse_positions[0][0], self._mouse_positions[1][0])
+            y_max = max(self._mouse_positions[0][1], self._mouse_positions[1][1])
+            y_min = min(self._mouse_positions[0][1], self._mouse_positions[1][1])
+            for landmark in all_landmarks:
+                in_x = x_max >= landmark.location[0] >= x_min
+                in_y = y_max >= landmark.location[1] >= y_min
+                if in_x and in_y:
+                    selected_landmarks.append(landmark)
+            if len(selected_landmarks) < 1:
+                self._selected_landmarks = []
+            else:
+                self._selected_landmarks.append(utils.LandmarkGroup(selected_landmarks))
+        self._landmark_features.selected = []
+        for landmark_def in self._selected_landmarks:
+            if isinstance(landmark_def, utils.Landmark):
+                self._landmark_features.selected.append(landmark_def.index)
+            else:
+                self._landmark_features.selected.extend([landmark.index for landmark in landmark_def.landmarks])
         self._frame_buffer.update_curr_frame(remark=True)
         return len(self._selected_landmarks)
 
     def draw_metrics(self) -> bool:
+        # TODO: Make this able to draw centroids of landmark groups
         self._landmark_features.lines = []
         for metric in self._metrics:
             type = metric.type
-            landmarks = [landmark.index for landmark in metric.landmarks]
+            landmarks = []
+            for landmark_def in metric.landmarks:
+                if isinstance(landmark_def, utils.Landmark):
+                    landmarks.append(landmark_def.index)
+                else:
+                    landmarks.extend([landmark.index for landmark in landmark_def.landmarks])
             if type == utils.MetricType.AREA:
-                landmarks += [metric.landmarks[0].index]
+                landmarks += [landmarks[0]]
             self._landmark_features.lines.append(landmarks)
         self._frame_buffer.update_curr_frame()
         return True
@@ -610,7 +635,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
         if len(self._selected_landmarks) < 2:
             return False
         if name is None:
-            name = f"{type.name}:{','.join([str(landmark.index) for landmark in self._selected_landmarks])}"
+            name = f"{type.name}:{','.join([str(landmark.index) for landmark in self._selected_landmarks if isinstance(landmark, utils.Landmark)])}"
         metric = utils.Metric(name, type, self._selected_landmarks[:])
         self._metrics.append(metric)
         if self._metric_creation_window is not None:
@@ -622,8 +647,9 @@ class ImageViewer(QtWidgets.QGraphicsView):
 
     def remove_metric(self) -> bool:
         # Removes the metric represented by the selected landmarks
+        # TODO: Make this work with centroids
         for i, metric in enumerate(self._metrics):
-            landmarks = [landmark.index for landmark in metric.landmarks]
+            landmarks = [landmark.index for landmark in metric.landmarks if isinstance(landmark, utils.Landmark)]
             all_included = True
             for landmark in self._selected_landmarks:
                 all_included = all_included and landmark.index in landmarks

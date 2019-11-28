@@ -24,7 +24,7 @@ highlight_color = (247, 222, 59)
 
 @dataclass
 class GroupConfig:
-    colors: Dict[str, Tuple[int, int, int]] = field(default_factory=dict)
+    colors: Dict[str, Tuple[int, int, int]] = field(default_factory=group_colors)
     highlight_color: Tuple[int, int, int] = highlight_color
 
 @dataclass

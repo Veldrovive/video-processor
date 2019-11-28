@@ -1,5 +1,5 @@
 from PyQt5 import QtWidgets, QtGui, QtCore, uic
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 import pandas as pd
 import numpy as np
 import utils
@@ -23,12 +23,38 @@ class MetricCalc(QtCore.QThread):
     def poly_area(x, y):
         return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
 
-    def calc_area(self, locations: List[Tuple[int, int]]):
-        poly_x = [loc[0] for loc in locations]
-        poly_y = [loc[1] for loc in locations]
+    def calc_area(self, locations: List[Tuple[int, int]], landmark_defs: List[Union[utils.Landmark, utils.LandmarkGroup]]):
+        positions = []
+        total_count = 0
+        for landmark_def in landmark_defs:
+            if isinstance(landmark_def, utils.Landmark):
+                positions.append(locations[total_count])
+                total_count += 1
+            else:
+                group_positions = []
+                for landmark in landmark_def.landmarks:
+                    group_positions.append(locations[total_count])
+                    total_count += 1
+                centroid = utils.get_centroid(group_positions)
+                positions.append(centroid)
+        poly_x = [loc[0] for loc in positions]
+        poly_y = [loc[1] for loc in positions]
         return self.poly_area(poly_x, poly_y)
 
-    def calc_distance(self, locations: List[Tuple[int, int]]):
+    def calc_distance(self, locations: List[Tuple[int, int]], landmark_defs: List[Union[utils.Landmark, utils.LandmarkGroup]]):
+        positions = []
+        total_count = 0
+        for landmark_def in landmark_defs:
+            if isinstance(landmark_def, utils.Landmark):
+                positions.append(locations[total_count])
+                total_count += 1
+            else:
+                group_positions = []
+                for landmark in landmark_def.landmarks:
+                    group_positions.append(locations[total_count])
+                    total_count += 1
+                centroid = utils.get_centroid(group_positions)
+                positions.append(centroid)
         return sum([np.linalg.norm(np.array(locations[i])-np.array(locations[i+1])) for i in range(len(locations)-1)])
 
     def run(self):
@@ -40,17 +66,23 @@ class MetricCalc(QtCore.QThread):
         for metric in self._metrics:
             metric_type, landmarks, name = metric.type, metric.landmarks, metric.name
             landmark_cols = []
-            for landmark in landmarks:
-                landmark_cols.extend([f"landmark_{landmark.index-1}_x", f"landmark_{landmark.index-1}_y"])
+            for landmark_def in landmarks:
+                if isinstance(landmark_def, utils.Landmark):
+                    landmark_cols.extend([f"landmark_{landmark_def.index-1}_x", f"landmark_{landmark_def.index-1}_y"])
+                else:
+                    for landmark in landmark_def.landmarks:
+                        landmark_cols.extend(
+                            [f"landmark_{landmark.index - 1}_x", f"landmark_{landmark.index - 1}_y"])
             positions = list(zip(*[self._landmarks[col] for col in landmark_cols]))
+            # TODO: Remove rounding
             coords = [[(int(round(frame_pos[2*i])), int(round(frame_pos[2*i+1]))) for i in range(int(len(frame_pos)/2))] for frame_pos in positions]
 
             measures = []
             for frame_positions in coords:
                 if metric_type == utils.MetricType.LENGTH:
-                    measures.append(self.calc_distance(frame_positions))
+                    measures.append(self.calc_distance(frame_positions, metric.landmarks))
                 if metric_type == utils.MetricType.AREA:
-                    measures.append(self.calc_area(frame_positions))
+                    measures.append(self.calc_area(frame_positions, metric.landmarks))
                 done_count += 1
                 self.frame_done_signal.emit(done_count, done_count / total)
             metrics_df[name] = measures
