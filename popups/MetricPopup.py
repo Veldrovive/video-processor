@@ -130,10 +130,10 @@ class MetricWindow(QtWidgets.QMainWindow):
         if len(running_metrics) < 1:
             return False
         metric_calc = MetricCalc(running_metrics, self._landmarks)
-        metric_calc.start()
         metric_calc.started.connect(self.on_metrics_start)
         metric_calc.frame_done_signal.connect(self.on_frame_done)
         metric_calc.metrics_complete_signal.connect(self.on_metrics_done)
+        metric_calc.start()
         return True
 
     def on_metrics_start(self):

@@ -32,10 +32,13 @@ class Landmark:
     index: int = -1
     group: str = ""
     location: Tuple[int, int] = (-1, -1)
+
+    def get_index(self) -> int:
+        return self.index
 @dataclass
 class FaceLandmarks:
     bounding_box: BoundingBox = field(default_factory=BoundingBox)
-    lines: List[List[Landmark]] = field(default_factory=list)
+    lines: List[List[Union[Landmark, List[Landmark]]]] = field(default_factory=list)
     landmarks: Dict[str, List[Landmark]] = field(default_factory=dict)
 
 @dataclass
@@ -49,12 +52,15 @@ class LandmarkFeatures:
     groups: Dict[str, List[int]] = field(default_factory=dict)
     selected: List[int] = field(default_factory=list)
     excluded: List[int] = field(default_factory=list)
-    lines: List[List[int]] = field(default_factory=list)
+    lines: List[List[Union[int, List[int]]]] = field(default_factory=list)
     color_overrides: Tuple[List[int], List[Tuple[int, int, int]]] = field(default_factory=list)
 
 @dataclass
 class LandmarkGroup:
     landmarks: List[Landmark] = field(default_factory=list)
+
+    def get_index(self) -> List[int]:
+        return [landmark.index for landmark in self.landmarks]
 @dataclass
 class Metric:
     name: str = ""
@@ -65,7 +71,7 @@ class Metric:
 def get_centroid(points: List[Tuple[float, float]]):
     x_avg = sum([coord[0] for coord in points])/len(points)
     y_avg = sum([coord[1] for coord in points])/len(points)
-    return (x_avg, y_avg)
+    return int(round(x_avg)), int(round(y_avg))
 
 def landmark_frame_to_shapes(landmark_frame: pd.DataFrame, features: LandmarkFeatures) -> Optional[FaceLandmarks]:
     shape_defs = features.groups
@@ -104,19 +110,29 @@ def landmark_frame_to_shapes(landmark_frame: pd.DataFrame, features: LandmarkFea
 
     face_landmarks.lines = []
     for line in features.lines:
-        face_landmarks.lines.append(list(map(
-            lambda landmark_index: Landmark(landmark_index, "lines", (
-                    int(landmark_values[2 * (landmark_index - 1)]),
-                    int(landmark_values[2 * (landmark_index - 1) + 1])
+        curr_line = []
+        for landmarks in line:
+            if isinstance(landmarks, list):
+                centroid_points = []
+                for landmark_index in landmarks:
+                    centroid_points.append(Landmark(landmark_index, "lines", (
+                        int(landmark_values[2 * (landmark_index - 1)]),
+                        int(landmark_values[2 * (landmark_index - 1) + 1])
+                        )
+                    ))
+                curr_line.append(centroid_points)
+            else:
+                curr_line.append(Landmark(landmarks, "lines", (
+                    int(landmark_values[2 * (landmarks - 1)]),
+                    int(landmark_values[2 * (landmarks - 1) + 1])
                     )
-                ), line
-            ))
-        )
+                ))
+        face_landmarks.lines.append(curr_line)
 
     return face_landmarks
 
 def rescale_pos(loc: Tuple[int, int], scale_factor: float) -> Tuple[int, ...]:
-    return tuple([int(coord*scale_factor) for coord in loc])
+    return tuple([int(round(coord*scale_factor)) for coord in loc])
 
 def markup_image(img: np.ndarray,
                  face_landmarks: FaceLandmarks = FaceLandmarks(),
@@ -140,10 +156,16 @@ def markup_image(img: np.ndarray,
         lines = face_landmarks.lines
         for line in lines:
             for i in range(len(line) - 1):
-                point_one = tuple(
-                    [int(round(coord * scale_factor)) for coord in line[i].location])
-                point_two = tuple(
-                    [int(round(coord * scale_factor)) for coord in line[i + 1].location])
+                if isinstance(line[i], list):
+                    point_one = rescale_pos(get_centroid([landmark.location for landmark in line[i]]), scale_factor)
+                    cv2.circle(img=img, center=point_one, radius=5,
+                               color=config.highlight_color, thickness=1)
+                else:
+                    point_one = tuple([int(round(coord * scale_factor)) for coord in line[i].location])
+                if isinstance(line[i+1], list):
+                    point_two = rescale_pos(get_centroid([landmark.location for landmark in line[i+1]]), scale_factor)
+                else:
+                    point_two = tuple([int(round(coord * scale_factor)) for coord in line[i+1].location])
                 cv2.line(img, point_one, point_two, config.highlight_color, 1)
 
     if landmark_features.show.landmarks:

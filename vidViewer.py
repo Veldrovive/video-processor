@@ -374,7 +374,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
         # self.add_to_group("left_eyebrow", list(range(23, 27 + 1)))
         # self.add_to_group("chin_outline", list(range(1, 17 + 1)))
         self.add_to_group("lower_eye", [41, 42, 48, 47])
-        self.add_to_group("upper_mouth", [62, 63, 64])
+        self.add_to_group("upper_mouth", [61, 62, 63, 64, 65])
         self.add_to_group("lower_mouth", [66, 67, 68])
         return True
 
@@ -644,12 +644,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
         self._landmark_features.lines = []
         for metric in self._metrics:
             type = metric.type
-            landmarks = []
-            for landmark_def in metric.landmarks:
-                if isinstance(landmark_def, utils.Landmark):
-                    landmarks.append(landmark_def.index)
-                else:
-                    landmarks.extend([landmark.index for landmark in landmark_def.landmarks])
+            landmarks = [landmark.get_index() for landmark in metric.landmarks]
             if type == utils.MetricType.AREA:
                 landmarks += [landmarks[0]]
             self._landmark_features.lines.append(landmarks)
