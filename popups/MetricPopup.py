@@ -6,7 +6,7 @@ import utils
 
 class MetricCalc(QtCore.QThread):
     _metrics: List[utils.Metric] = []
-    _landmarks: pd.DataFrame = None
+    _landmarks: utils.Landmarks = None
 
     _distances = Dict[str, List[float]]
     _areas = Dict[str, List[float]]
@@ -14,7 +14,7 @@ class MetricCalc(QtCore.QThread):
     frame_done_signal = QtCore.pyqtSignal(int, float)  # Emits the index of the frame as well as the percent complete
     metrics_complete_signal = QtCore.pyqtSignal(object)  # Emits the results of the metrics as a dataframe
 
-    def __init__(self, metrics=None, landmarks: pd.DataFrame=None):
+    def __init__(self, metrics, landmarks: utils.Landmarks):
         super(MetricCalc, self).__init__()
         self._metrics = metrics
         self._landmarks = landmarks
@@ -23,66 +23,41 @@ class MetricCalc(QtCore.QThread):
     def poly_area(x, y):
         return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
 
-    def calc_area(self, locations: List[Tuple[int, int]], landmark_defs: List[Union[utils.Landmark, utils.LandmarkGroup]]):
+    def calc_area(self, frame: int, landmark_defs: List[Union[int, List[int]]]):
         positions = []
-        total_count = 0
         for landmark_def in landmark_defs:
-            if isinstance(landmark_def, utils.Landmark):
-                positions.append(locations[total_count])
-                total_count += 1
+            if isinstance(landmark_def, int):
+                positions.append(self._landmarks.get_landmark_locations(frame, landmark_def)[0])
             else:
-                group_positions = []
-                for landmark in landmark_def.landmarks:
-                    group_positions.append(locations[total_count])
-                    total_count += 1
-                centroid = utils.get_centroid(group_positions)
-                positions.append(centroid)
+                positions.append(self._landmarks.get_centroid(frame, landmark_def))
         poly_x = [loc[0] for loc in positions]
         poly_y = [loc[1] for loc in positions]
         return self.poly_area(poly_x, poly_y)
 
-    def calc_distance(self, locations: List[Tuple[int, int]], landmark_defs: List[Union[utils.Landmark, utils.LandmarkGroup]]):
+    def calc_distance(self, frame: int, landmark_defs: List[Union[int, List[int]]]):
         positions = []
-        total_count = 0
         for landmark_def in landmark_defs:
-            if isinstance(landmark_def, utils.Landmark):
-                positions.append(locations[total_count])
-                total_count += 1
+            if isinstance(landmark_def, int):
+                positions.append(self._landmarks.get_landmark_locations(frame, landmark_def))
             else:
-                group_positions = []
-                for landmark in landmark_def.landmarks:
-                    group_positions.append(locations[total_count])
-                    total_count += 1
-                centroid = utils.get_centroid(group_positions)
-                positions.append(centroid)
-        return sum([np.linalg.norm(np.array(locations[i])-np.array(locations[i+1])) for i in range(len(locations)-1)])
+                positions.append(self._landmarks.get_centroid(frame, landmark_def))
+        return sum([np.linalg.norm(np.array(positions[i])-np.array(positions[i+1])) for i in range(len(positions)-1)])
 
     def run(self):
+        num_frames = self._landmarks.get_num_frames()
         metrics_df = pd.DataFrame(None, columns=["Frame_number"].extend([metric.name for metric in self._metrics]))
-        metrics_df["Frame_number"] = self._landmarks["Frame_number"]
-        total = len(self._landmarks.index)*len(self._metrics)
+        metrics_df["Frame_number"] = list(range(num_frames))
+        total = num_frames*len(self._metrics)
         done_count = 0
         self.frame_done_signal.emit(done_count, done_count / total)
         for metric in self._metrics:
             metric_type, landmarks, name = metric.type, metric.landmarks, metric.name
-            landmark_cols = []
-            for landmark_def in landmarks:
-                if isinstance(landmark_def, utils.Landmark):
-                    landmark_cols.extend([f"landmark_{landmark_def.index-1}_x", f"landmark_{landmark_def.index-1}_y"])
-                else:
-                    for landmark in landmark_def.landmarks:
-                        landmark_cols.extend(
-                            [f"landmark_{landmark.index - 1}_x", f"landmark_{landmark.index - 1}_y"])
-            positions = list(zip(*[self._landmarks[col] for col in landmark_cols]))
-            # TODO: Remove rounding
-            coords = [[(int(round(frame_pos[2*i])), int(round(frame_pos[2*i+1]))) for i in range(int(len(frame_pos)/2))] for frame_pos in positions]
-
             measures = []
-            for frame_positions in coords:
+            for frame in range(num_frames):
                 if metric_type == utils.MetricType.LENGTH:
-                    measures.append(self.calc_distance(frame_positions, metric.landmarks))
+                    measures.append(self.calc_distance(frame, landmarks))
                 if metric_type == utils.MetricType.AREA:
-                    measures.append(self.calc_area(frame_positions, metric.landmarks))
+                    measures.append(self.calc_area(frame, landmarks))
                 done_count += 1
                 self.frame_done_signal.emit(done_count, done_count / total)
             metrics_df[name] = measures
@@ -95,7 +70,7 @@ class MetricWindow(QtWidgets.QMainWindow):
     metric_container: QtWidgets.QVBoxLayout
     progress: QtWidgets.QProgressBar
     _metrics: List[utils.Metric] = []
-    _landmarks: pd.DataFrame = None
+    _landmarks: utils.Landmarks = None
     _metric_checkboxes: Dict[str, QtWidgets.QCheckBox] = {}
     _metrics_done: bool = False
     _save_path: str = None
@@ -103,7 +78,7 @@ class MetricWindow(QtWidgets.QMainWindow):
 
     metric_done_signal = QtCore.pyqtSignal(object) # Emitted when metrics are done calculating
 
-    def __init__(self, parent=None, metrics=None, landmarks: pd.DataFrame=None):
+    def __init__(self, parent=None, metrics=None, landmarks: utils.Landmarks=None):
         super(MetricWindow, self).__init__(parent)
         uic.loadUi("uis/MetricPopup.ui", self)
         self._metrics = metrics

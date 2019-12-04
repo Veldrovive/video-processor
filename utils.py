@@ -1,5 +1,6 @@
-from typing import Dict, List, Tuple, Union, Optional
+from typing import Dict, List, Set, Tuple, Union, Optional
 from dataclasses import dataclass, field
+from scipy.spatial.distance import cdist
 import pandas as pd
 import numpy as np
 import cv2
@@ -23,189 +24,332 @@ class MetricType(Enum):
     LENGTH = 1
     AREA = 2
 
-@dataclass
 class BoundingBox:
-    point1: Tuple[int, int] = (-1, -1)
-    point2: Tuple[int, int] = (-1, -1)
+    locations: Dict[int, Tuple[Tuple[int, int], Tuple[int, int]]] = {}
+
+    def __init__(self, landmarks: pd.DataFrame):
+        locations = landmarks[[
+            "Frame_number", "bbox_top_x","bbox_top_y", "bbox_bottom_x", "bbox_bottom_y"
+        ]].values
+        for frame in locations:
+            self.locations[int(frame[0])] = (
+                (frame[1], frame[2]),
+                (frame[3], frame[4])
+            )
+
+    def get_location(self, frame_num: int) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
+        if frame_num in self.locations:
+            return self.locations[frame_num]
+        return None
+
 @dataclass
 class Landmark:
     index: int = -1
     group: str = ""
-    location: Tuple[int, int] = (-1, -1)
+    locations: Dict[int, Tuple[float, float]] = field(default_factory=dict)
+
+    def set_location(self, frame: int, pos: Tuple[float, float]) -> bool:
+        try:
+            self.locations[frame] = pos
+            return True
+        except IndexError:
+            return False
 
     def get_index(self) -> int:
         return self.index
-@dataclass
-class FaceLandmarks:
-    bounding_box: BoundingBox = field(default_factory=BoundingBox)
-    lines: List[List[Union[Landmark, List[Landmark]]]] = field(default_factory=list)
-    landmarks: Dict[str, List[Landmark]] = field(default_factory=dict)
 
-@dataclass
-class ShowStatus:
-    landmarks: bool = True
-    bounding_box: bool = True
-    metrics: bool = True
-@dataclass
-class LandmarkFeatures:
-    show: ShowStatus = field(default_factory=ShowStatus)
-    groups: Dict[str, List[int]] = field(default_factory=dict)
-    selected: List[int] = field(default_factory=list)
-    excluded: List[int] = field(default_factory=list)
-    lines: List[List[Union[int, List[int]]]] = field(default_factory=list)
-    color_overrides: Tuple[List[int], List[Tuple[int, int, int]]] = field(default_factory=list)
+    def get_group(self) -> str:
+        return self.group
 
-@dataclass
-class LandmarkGroup:
-    landmarks: List[Landmark] = field(default_factory=list)
+    def get_location(self, frame_num: int) -> Tuple[float, float]:
+        try:
+            return self.locations[frame_num]
+        except KeyError:
+            return -1, -1
 
-    def get_index(self) -> List[int]:
-        return [landmark.index for landmark in self.landmarks]
+    def get_columns(self) -> Dict[str, List[float]]:
+        return {
+            f"landmark_{self.index}_x": [self.locations[frame][0] for frame in self.locations],
+            f"landmark_{self.index}_y": [self.locations[frame][1] for frame in self.locations]
+        }
+class Landmarks:
+    _landmarks_frame: pd.DataFrame = None
+    _landmarks: List[Optional[Landmark]] = []
+    _bounding_boxes: List[BoundingBox]
+    _n_landmarks: int = 0
+
+    def __init__(self, landmarks: pd.DataFrame, n_landmarks: int = 68):
+        self._landmarks_frame = landmarks
+        self._n_landmarks = n_landmarks
+        self.populate_landmarks()
+        self.populate_bounding_boxes()
+
+    def populate_landmarks(self) -> bool:
+        for i in range(self._n_landmarks):
+            try:
+                locations = self._landmarks_frame[[
+                    "Frame_number", f"landmark_{i}_x", f"landmark_{i}_y"
+                ]].values
+                frame_locations = {}
+                for frame in locations:
+                    frame_locations[int(frame[0])] = tuple(frame[1:])
+                landmark = Landmark(i, "face", frame_locations)
+            except KeyError:
+                landmark = None
+            self._landmarks.append(landmark)
+        return True
+
+    def populate_bounding_boxes(self) -> bool:
+        self._bounding_boxes = [BoundingBox(self._landmarks_frame)]
+        return True
+
+    def get_bound_box_locs(self, frame: int) -> List[Tuple[Tuple[float, float], Tuple[float, float]]]:
+        box_locs = []
+        for bounding_box in self._bounding_boxes:
+            loc = bounding_box.get_location(frame)
+            if loc is not None:
+                box_locs.append(bounding_box.get_location(frame))
+        return box_locs
+
+    def set_group(self, landmarks: Union[int, List[int]], group: str = "face") -> bool:
+        for landmark in landmarks:
+            try:
+                self._landmarks[landmark].group = group
+            except IndexError:
+                pass
+        return True
+
+    def set_location(self, frame: int, landmark_index: int, pos: Tuple[float, float]) -> bool:
+        try:
+            return self._landmarks[landmark_index].set_location(frame, pos)
+        except IndexError:
+            return False
+
+    def get_landmark_locations(self, frame: int, landmarks: Optional[Union[int, List[int]]]=None, exlude_none=True) -> List[Optional[Tuple[float, float]]]:
+        if isinstance(landmarks, int):
+            landmarks = [landmarks]
+        if landmarks is None:
+            landmarks = range(self._n_landmarks)
+        locs = [self._landmarks[i].get_location(frame) for i in landmarks]
+        if exlude_none:
+            locs = [loc for loc in locs if loc is not None]
+        return locs
+
+    def get_landmarks(self, frame: int, landmarks: Optional[Union[int, List[int]]]=None) -> List[Optional[Tuple[Tuple[float, float], str, int]]]:
+        if isinstance(landmarks, int):
+            landmarks = [landmarks]
+        if landmarks is None:
+            landmarks = range(self._n_landmarks)
+        res = []
+        for index in landmarks:
+            landmark = self._landmarks[index]
+            if landmark is not None:
+                res.append((
+                    landmark.get_location(frame),
+                    landmark.get_group(),
+                    landmark.get_index()
+                ))
+        return res
+
+    def get_centroid(self, frame: int, landmarks: List[int]) -> Tuple[float, float]:
+        locations = [location for location in self.get_landmark_locations(frame, landmarks) if location is not None]
+        return tuple(np.sum(locations, axis=0)/len(locations))
+
+    def get_nearest_point(self, frame: int, pos: Tuple[float, float], threshold: int=6) -> Optional[int]:
+        locations = self.get_landmark_locations(frame)
+        distance = cdist(np.array(locations), np.array([pos]))[:, 0]
+        min_index = np.argmin(distance)
+        min_dist = distance[min_index]
+        if min_dist < threshold or threshold == -1:
+            return self._landmarks[min_index].index
+        else:
+            return None
+
+    def get_point_area(self, frame: int, x_max: float, x_min: float, y_max: float, y_min: float) -> List[int]:
+        locations = self.get_landmark_locations(frame)
+        selected_landmarks = []
+        for index, location in enumerate(locations):
+            in_x = x_max >= location[0] >= x_min
+            in_y = y_max >= location[1] >= y_min
+            if in_x and in_y:
+                selected_landmarks.append(index)
+        return selected_landmarks
+
+    def get_num_frames(self) -> int:
+        try:
+            return self._landmarks_frame.shape[0]
+        except AttributeError:
+            return 0
+
+    def get_dataframe(self) -> pd.DataFrame:
+        landmark_frame = self._landmarks_frame.copy()
+        for landmark in self._landmarks:
+            columns = landmark.get_columns()
+            for column in columns:
+                landmark_frame[column] = columns[column]
+        return landmark_frame
+
+
+
 @dataclass
 class Metric:
     name: str = ""
     type: MetricType = MetricType.LENGTH
-    landmarks: List[Union[Landmark, LandmarkGroup]] = field(default_factory=list)
+    landmarks: List[Union[int, List[int]]] = field(default_factory=list)
+class ImageMarker:
+    _scale_factor: float = 1
 
+    _landmarks: Optional[Landmarks] = None
+    _show: Dict[str, bool] = {"land": True, "bound": True, "metrics": True}
+    _selected: Set[int] = set()
+    _excluded: Set[int] = set()
+    _color_overrides: Dict[int, Tuple[int, int, int]] = {}
 
-def get_centroid(points: List[Tuple[float, float]]):
-    x_avg = sum([coord[0] for coord in points])/len(points)
-    y_avg = sum([coord[1] for coord in points])/len(points)
-    return int(round(x_avg)), int(round(y_avg))
+    _config: config.Config = None
 
-def landmark_frame_to_shapes(landmark_frame: pd.DataFrame, features: LandmarkFeatures) -> Optional[FaceLandmarks]:
-    shape_defs = features.groups
-    bounding_values = landmark_frame[["bbox_top_x", "bbox_top_y", "bbox_bottom_x", "bbox_bottom_y"]].values[0]
-    bounding_box = BoundingBox(
-        (int(round(bounding_values[0])), int(round(bounding_values[1]))),
-        (int(round(bounding_values[2])), int(round(bounding_values[3])))
-    )
-    face_landmarks = FaceLandmarks(bounding_box, [], {})
+    _metrics: List[Metric] = []
 
-    indices = [shape_defs[group] for group in shape_defs if len(shape_defs[group]) > 0]
-    max_index = np.max([np.max(l) for l in indices]) if len(indices) > 0 else 0
-    all_vals = []
-    for i in range(max_index):
-        all_vals.extend([f"landmark_{i}_x", f"landmark_{i}_y"])
-    try:
-        landmark_values = landmark_frame[all_vals].values[0]
-    except Exception as e:
-        # TODO: Make this exception handling more specific
-        return None
+    def __init__(self, landmarks: Landmarks=None, scale_factor: float=1, group_config: config.Config = None):
+        if group_config is None:
+            self._config = config.Config()
+        else:
+            self._config = group_config
+        self._landmarks = landmarks
+        self._scale_factor = scale_factor
 
-    face_landmarks.landmarks = {}
-    for group in shape_defs:
-        face_landmarks.landmarks[group] = []
-        landmark_indices = shape_defs[group]
-        for index in landmark_indices:
-            landmark = Landmark(
-                index,
-                group,
-                (
-                    int(landmark_values[2 * (index - 1)]),
-                    int(landmark_values[2 * (index - 1) + 1])
-                )
-            )
-            face_landmarks.landmarks[group].append(landmark)
+    def set_scale_factor(self, scale_factor: float) -> bool:
+        self._scale_factor = scale_factor
+        return True
 
-    face_landmarks.lines = []
-    for line in features.lines:
-        curr_line = []
-        for landmarks in line:
-            if isinstance(landmarks, list):
-                centroid_points = []
-                for landmark_index in landmarks:
-                    centroid_points.append(Landmark(landmark_index, "lines", (
-                        int(landmark_values[2 * (landmark_index - 1)]),
-                        int(landmark_values[2 * (landmark_index - 1) + 1])
-                        )
-                    ))
-                curr_line.append(centroid_points)
-            else:
-                curr_line.append(Landmark(landmarks, "lines", (
-                    int(landmark_values[2 * (landmarks - 1)]),
-                    int(landmark_values[2 * (landmarks - 1) + 1])
-                    )
-                ))
-        face_landmarks.lines.append(curr_line)
+    def set_landmarks(self, landmarks: Landmarks) -> bool:
+        self._landmarks = landmarks
+        return True
 
-    return face_landmarks
+    # For managing visibility
+    def toggle_landmarks(self) -> bool:
+        self._show["land"] = not self._show["land"]
+        return self._show["land"]
 
-def rescale_pos(loc: Tuple[int, int], scale_factor: float) -> Tuple[int, ...]:
-    return tuple([int(round(coord*scale_factor)) for coord in loc])
+    def toggle_bounding_box(self) -> bool:
+        self._show["bound"] = not self._show["bound"]
+        return self._show["bound"]
 
-def markup_image(img: np.ndarray,
-                 face_landmarks: FaceLandmarks = FaceLandmarks(),
-                 landmark_features: LandmarkFeatures = LandmarkFeatures(),
-                 resolution: Tuple[int, int] = (1920, 1080),
-                 scale_factor: float = 1
-                 ):
-    color_override = landmark_features.color_overrides
-    excluded_landmarks = landmark_features.excluded
-    img = img.copy()
-    h, w, _ = img.shape
-    base_colors = config.group_colors
+    def toggle_metrics(self) -> bool:
+        self._show["metrics"] = not self._show["metrics"]
+        return self._show["metrics"]
 
-    if landmark_features.show.bounding_box:
-        bounding_box = face_landmarks.bounding_box
-        cv2.rectangle(img, rescale_pos(bounding_box.point2, scale_factor),
-                      rescale_pos(bounding_box.point1, scale_factor), (255, 0, 0),
-                      2)
+    # Metric Management
+    def set_metrics(self, metrics: List[Metric]) -> bool:
+        self._metrics = metrics
+        return True
 
-    if landmark_features.show.metrics:
-        lines = face_landmarks.lines
-        for line in lines:
-            for i in range(len(line) - 1):
-                if isinstance(line[i], list):
-                    point_one = rescale_pos(get_centroid([landmark.location for landmark in line[i]]), scale_factor)
-                    cv2.circle(img=img, center=point_one, radius=5,
-                               color=config.highlight_color, thickness=1)
-                else:
-                    point_one = tuple([int(round(coord * scale_factor)) for coord in line[i].location])
-                if isinstance(line[i+1], list):
-                    point_two = rescale_pos(get_centroid([landmark.location for landmark in line[i+1]]), scale_factor)
-                else:
-                    point_two = tuple([int(round(coord * scale_factor)) for coord in line[i+1].location])
-                cv2.line(img, point_one, point_two, config.highlight_color, 1)
+    # Group management
+    def add_to_group(self, name: str, indices: List[int]) -> bool:
+        if name in self._config.group.colors:
+            self._landmarks.set_group(indices, name)
+            return True
+        return False
 
-    if landmark_features.show.landmarks:
-        for i, group in enumerate(face_landmarks.landmarks):
-            if group in base_colors:
-                # TODO: Make config configurable
-                color = base_colors[group]
-            else:
-                r_seed = sum([ord(s) for s in group])
-                np.random.seed(r_seed)
-                color = [int(i) for i in np.random.randint(0, 256, 3)]
-            landmarks = face_landmarks.landmarks[group]
-            for landmark in landmarks:
-                # TODO: get the size automatically so it is not fixed
-                # TODO: Numpy types dont seem to work for color, fix that
+    def set_group_color(self, name: str, color: Tuple[int, int, int]) -> bool:
+        return self._config.group.update_group(name, color)
+
+    def select(self, landmarks: List[int]) -> bool:
+        try:
+            self._selected.update(landmarks)
+            return True
+        except TypeError:
+            return False
+
+    def deselect(self, landmarks: Optional[List[int]]=None) -> bool:
+        if landmarks is None:
+            self._selected = set()
+        else:
+            self._selected.difference_update(landmarks)
+        return True
+
+    def exclude(self, landmarks: List[int]) -> bool:
+        try:
+            self._excluded.update(landmarks)
+            return True
+        except TypeError:
+            return False
+
+    def include(self, landmarks: List[int]=None) -> bool:
+        if landmarks is None:
+            self._excluded = set()
+        else:
+            self._excluded.difference_update(landmarks)
+        return True
+
+    def add_override(self, index: int, color: Tuple[int, int, int]) -> bool:
+        self._color_overrides[index] = color
+        return True
+
+    def remove_override(self, index) -> bool:
+        if index in self._color_overrides:
+            del self._color_overrides[index]
+            return True
+        return False
+
+    # For marking up frames
+    @staticmethod
+    def _cast_pos(loc: Tuple[float, float], scale_factor: float) -> Tuple[int, ...]:
+        return tuple([int(round(coord * scale_factor)) for coord in loc])
+
+    def _get_point(self, frame_num: int, landmark_def: Union[int, List[int]]):
+        is_centroid = False
+        if isinstance(landmark_def, list):
+            point = self._landmarks.get_centroid(frame_num, landmark_def)
+            is_centroid = True
+        else:
+            point = self._landmarks.get_landmark_locations(frame_num, landmark_def)[0]
+        return point, is_centroid
+
+    def markup_image(self, img: np.ndarray, frame_num: int) -> np.ndarray:
+        img = img.copy()
+        h, w, _ = img.shape
+        circle_rad = int(round(max(h, w) / 450))
+        if self._show["bound"]:
+            for bound_box_points in self._landmarks.get_bound_box_locs(frame_num):
                 try:
-                    override_pos = color_override[0].index(landmark.index)
-                    landmark_color = color_override[1][override_pos]
-                except (ValueError, IndexError) as e:
-                    landmark_color = color
+                    lt_point, rb_point = [self._cast_pos(pos, self._scale_factor) for pos in bound_box_points]
+                    cv2.rectangle(img, lt_point, rb_point, (255, 0, 0), 2)
+                except TypeError:
+                    pass
 
-                if landmark.index in landmark_features.selected:
-                    # TODO: Make config configurable
-                    landmark_color = config.highlight_color
+        if self._show["metrics"]:
+            for metric in self._metrics:
+                last_point = self._cast_pos(self._get_point(frame_num, metric.landmarks[0])[0], self._scale_factor)
+                for landmark_def in metric.landmarks:
+                    curr_point = self._cast_pos(self._get_point(frame_num, landmark_def)[0], self._scale_factor)
+                    cv2.line(img, last_point, curr_point, self._config.group.highlight_color, 1)
+                    cv2.circle(img=img, center=last_point, radius=circle_rad+1, color=self._config.group.highlight_color, thickness=1)
+                    last_point = curr_point
+                cv2.circle(img=img, center=last_point, radius=circle_rad + 1, color=self._config.group.highlight_color, thickness=1)
+                if metric.type == MetricType.AREA:
+                    curr_point = self._cast_pos(self._get_point(frame_num, metric.landmarks[0])[0], self._scale_factor)
+                    cv2.line(img, last_point, curr_point, self._config.group.highlight_color, 1)
 
-                if excluded_landmarks is None or landmark.index not in excluded_landmarks:
-                    add_landmark_indicator(img, landmark, landmark_color, resolution, scale_factor)
-    return img
-
-def add_landmark_indicator(frame, landmark, color, resolution: Tuple[int, int], scale_factor: float):
-    max_side = max(resolution)*scale_factor
-    circle_rad = int(round(max_side/450))
-    true_loc = rescale_pos(landmark.location, scale_factor)
-    cv2.circle(img=frame, center=true_loc, radius=circle_rad,
-               color=color, thickness=-1)
-    cv2.putText(frame,
-                str(landmark.index),
-                (true_loc[0] - 2, true_loc[1] - 2),
-                cv2.FONT_HERSHEY_DUPLEX,
-                0.125 * circle_rad,
-                (0, 0, 0), 1
-                )
-
+        if self._show["land"]:
+            for landmark in self._landmarks.get_landmarks(frame_num):
+                loc, group, index = landmark
+                if index in self._excluded:
+                    continue
+                color = (0, 0, 0)
+                group_colors = self._config.group.colors
+                if group in group_colors:
+                    color = group_colors[group]
+                if index in self._color_overrides:
+                    color = self._color_overrides[index]
+                if index in self._selected:
+                    color = self._config.group.highlight_color
+                true_pos = self._cast_pos(loc, self._scale_factor)
+                cv2.circle(img=img, center=true_pos, radius=circle_rad, color=color, thickness=-1)
+                cv2.putText(img,
+                            str(index),
+                            (true_pos[0] - 2, true_pos[1] - 2),
+                            cv2.FONT_HERSHEY_DUPLEX,
+                            0.125 * circle_rad,
+                            (0, 0, 0), 1
+                            )
+        return img

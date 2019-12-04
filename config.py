@@ -1,7 +1,6 @@
 from typing import Dict, Tuple
 from dataclasses import dataclass, field
 
-#TODO: Mouth and Eyes top/bottom different color
 # group_colors = {
 #     "left_eye": (230, 30, 30),
 #     "right_eye": (230, 30, 30),
@@ -24,8 +23,21 @@ highlight_color = (247, 222, 59)
 
 @dataclass
 class GroupConfig:
-    colors: Dict[str, Tuple[int, int, int]] = field(default_factory=group_colors)
+    colors: Dict[str, Tuple[int, int, int]] = field(default_factory=dict)
     highlight_color: Tuple[int, int, int] = highlight_color
+
+    def __post_init__(self):
+        self.colors = group_colors.copy()
+
+    def update_group(self, name: str, color: Tuple[int, int, int]) -> bool:
+        self.colors[name] = color
+        return True
+
+    def remove_group(self, name: str) -> bool:
+        if name in self.colors:
+            del self.colors[name]
+            return True
+        return False
 
 @dataclass
 class PlaybackConfig:

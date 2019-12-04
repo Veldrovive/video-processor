@@ -4,75 +4,66 @@ import os
 import numpy as np
 import cv2
 import pandas as pd
-from scipy.spatial.distance import cdist
+
+import config
 import utils
 
 from popups.MetricPopup import MetricWindow
 from popups.MetricCreationPopup import MetricCreationWindow
 
 class FrameBuffer(QtCore.QThread):
+    _reader: Optional[cv2.VideoCapture] = None
+    _marker: Optional[utils.ImageMarker] = None
+
     _buffer: list
     _buffer_radius: int
     _buffer_length: int
 
-    _reader: cv2.VideoCapture = None
+    _scale_factor: float = 1
     _target_frame: int = 0
     _curr_frame: int = 0
     _max_frame: int = -100
-    _resolution: Tuple[int, int] = (-1, -1)
-    _scale_factor: float = 1
 
-    _landmarks: Optional[pd.DataFrame] = None
-    _landmark_features: Optional[utils.LandmarkFeatures] = None
+    new_frame_signal = QtCore.pyqtSignal(object)
 
-    _playback_timer: QtCore.QTimer
-    _was_playing = False
     _force_update = False
-    frame_changed_signal = QtCore.pyqtSignal(object)
-
+    _was_playing = False
     _running = True
 
-    def __init__(self, reader: cv2.VideoCapture = None,
-                 landmarks: Optional[pd.DataFrame] = None,
-                 landmark_features: Optional[utils.LandmarkFeatures] = None,
+    def __init__(self, reader: Optional[cv2.VideoCapture] = None,
+                 marker: Optional[utils.ImageMarker] = None,
+                 scale_factor: float = 1,
                  buffer_radius=15):
         super(FrameBuffer, self).__init__()
+        self.set_reader(reader)
+        self._marker = marker
+
         self._buffer_radius = buffer_radius
         self._buffer_length = 1 + 2 * buffer_radius
         self._buffer = [None for i in range(self._buffer_length)]
 
-        if reader is not None:
-            self.set_reader(reader)
-        if landmark_features is not None:
-            self.set_landmark_features(landmark_features)
-        if landmarks is not None:
-            self.set_landmarks(landmarks)
+        self._scale_factor = scale_factor
 
         self._playback_timer = QtCore.QTimer()
         self._playback_timer.timeout.connect(
             lambda: self.set_frame(delta=1))
 
-    def set_reader(self, reader: Optional[cv2.VideoCapture], scale_factor: float = 1) -> bool:
-        self._reader = reader
+    def set_reader(self, reader: Optional[cv2.VideoCapture], scale_factor: float=1) -> bool:
         if reader is None:
             return False
+        self._reader = reader
         self._max_frame = int(self._reader.get(7)) - 1
-        self._resolution = (int(self._reader.get(3)), int(self._reader.get(4)))
         self._scale_factor = scale_factor
         return True
 
-    def set_landmarks(self, landmarks: Optional[pd.DataFrame]) -> bool:
-        self._landmarks = landmarks
-        if landmarks is None:
+    def set_img_marker(self, img_marker: utils.ImageMarker) -> bool:
+        if img_marker is None:
             return False
-        return True
-
-    def set_landmark_features(self, features: utils.LandmarkFeatures) -> bool:
-        self._landmark_features = features
+        self._marker = img_marker
         return True
 
     def init_buffer(self) -> bool:
-        if self._reader is not None and self._landmarks is not None:
+        if self._reader is not None and self._marker is not None:
             self.set_frame(0)
             self._force_update = True
         return True
@@ -94,7 +85,7 @@ class FrameBuffer(QtCore.QThread):
         if remark:
             self._force_update = True
         else:
-            self.frame_changed_signal.emit(self._buffer[self._buffer_radius])
+            self.new_frame_signal.emit(self._buffer[self._buffer_radius])
         return True
 
     def get_frame_num(self) -> int:
@@ -117,21 +108,11 @@ class FrameBuffer(QtCore.QThread):
     def is_playing(self) -> bool:
         return self._playback_timer.isActive()
 
-    def get_frame_landmarks(self, frame_num: int) -> Optional[pd.DataFrame]:
-        try:
-            landmarks = self._landmarks.loc[self._landmarks["Frame_number"] == frame_num]
-        except (ValueError, KeyError, AttributeError) as e:
-            landmarks = None
-        return landmarks
-
-    def get_marked_frame(self, frame: np.ndarray, frame_num: int) -> Tuple[Optional[np.ndarray], Optional[utils.FaceLandmarks]]:
-        marked_frame = None
-        landmarks = self.get_frame_landmarks(frame_num)
-        curr_landmarks = None
-        if landmarks is not None and not landmarks.empty:
-            curr_landmarks = utils.landmark_frame_to_shapes(landmarks, self._landmark_features)
-            marked_frame = utils.markup_image(frame, curr_landmarks, self._landmark_features, resolution=self._resolution, scale_factor=self._scale_factor)
-        return marked_frame, curr_landmarks
+    def get_marked_frame(self, frame: np.ndarray, frame_num: int) -> Optional[np.ndarray]:
+        if frame_num > self._max_frame:
+            return None
+        else:
+            return self._marker.markup_image(frame, frame_num)
 
     def read(self) -> Optional[np.ndarray]:
         ret, frame = self._reader.read()
@@ -168,7 +149,7 @@ class FrameBuffer(QtCore.QThread):
                 if frame is not None:
                     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     marked_frame = self.get_marked_frame(frame, true_frame)
-                    insert((true_frame, frame, *marked_frame))
+                    insert((true_frame, frame, marked_frame))
                 else:
                     insert(None)
         return True
@@ -177,13 +158,13 @@ class FrameBuffer(QtCore.QThread):
         if self._force_update:
             updated_current = False
             if self._buffer[self._buffer_radius] is not None:
-                index, frame, marked_frame, landmarks = self._buffer[self._buffer_radius]
-                marked_up, new_landmarks = self.get_marked_frame(frame, index)
-                self.frame_changed_signal.emit((index, frame, marked_up, new_landmarks))
+                index, frame, marked_frame = self._buffer[self._buffer_radius]
+                marked_up = self.get_marked_frame(frame, index)
+                self.new_frame_signal.emit((index, frame, marked_up))
                 updated_current = True
             self.read_frames(self._curr_frame-self._buffer_radius, self._buffer_length, utils.Position.BEG)
             if not updated_current:
-                self.frame_changed_signal.emit(self._buffer[self._buffer_radius])
+                self.new_frame_signal.emit(self._buffer[self._buffer_radius])
             self._force_update = False
 
         if self._target_frame == self._curr_frame:
@@ -193,7 +174,7 @@ class FrameBuffer(QtCore.QThread):
 
         frame_emit = False
         if abs(delta) <= self._buffer_radius:
-            self.frame_changed_signal.emit(self._buffer[delta+self._buffer_radius])
+            self.new_frame_signal.emit(self._buffer[delta+self._buffer_radius])
             frame_emit = True
 
         start = 0
@@ -215,7 +196,7 @@ class FrameBuffer(QtCore.QThread):
         self.read_frames(start, read_num, reader_pos)
 
         if not frame_emit:
-            self.frame_changed_signal.emit(self._buffer[self._buffer_radius])
+            self.new_frame_signal.emit(self._buffer[self._buffer_radius])
             pass
         self._curr_frame = self._target_frame
 
@@ -233,36 +214,36 @@ class ImageViewer(QtWidgets.QGraphicsView):
     _scene: Optional[QtWidgets.QGraphicsScene] = None
     _display: Optional[QtWidgets.QGraphicsPixmapItem] = None
 
-    _landmarks: Optional[pd.DataFrame] = None  # Holds all landmark points
-    _landmarks_editing: Optional[pd.DataFrame] = None # A copy of landmarks for editing
-    _landmark_features: Optional[utils.LandmarkFeatures] = utils.LandmarkFeatures() # Holds information about how to display landmarks
-    _current_landmarks: utils.FaceLandmarks
-
     _reader: Optional[cv2.VideoCapture] = None
+    _min_dim: int = 1920
     _video_length: int = -1
-    _video_fps: int = -1
     _playback_speed: float = 1
-    _resolution: Tuple[int, int] = (-1, -1)  # Stored as (width, height)
-    _min_dim = 1280
-    _scale_factor = 1
-    _resize_on_get_frame: bool = False
+    _video_fps: float = -1
+    _resolution: Tuple[int, int] = (-1, -1)  # Width, Height
+    _scale_factor: float = 1
+    _frame_buffer: Optional[FrameBuffer] = None
+    _img_marker: Optional[utils.ImageMarker] = None
 
-    _frame_buffer: FrameBuffer = None
+    _resize_on_get_frame: bool = True
 
-    _lifted_point: Optional[utils.Landmark] = None
-    _eyes_lifted: Dict[str, bool] = {"left": False, "right": False}
-    _mouse_positions: List[Tuple[int, int]] = [(-1, -1), (-1, -1), (-1, -1), (-1, -1)]
-    _selected_landmarks: List[Union[utils.Landmark, utils.LandmarkGroup]] = []
-    _held_keys: List[object] = []
+    _landmarks: Optional[utils.Landmarks] = None
+    _landmarks_frame:  Optional[pd.DataFrame] = None
 
     _metrics: List[utils.Metric] = []
+    _metric_selector: List[int] = []
 
+    color_config: config.Config = config.Config()
+
+    frame_change_signal = QtCore.pyqtSignal(int)  # Emitted when frame number changes
+    playback_change_signal = QtCore.pyqtSignal(bool)  # Emitted when video is paused or played
+    metadata_update_signal = QtCore.pyqtSignal(int, float, object)  # Emits length, frame rate, resolution
+    point_moved_signal = QtCore.pyqtSignal(bool, int)  # Emitted when a landmark is moved
+
+    _held_keys: List = []
+    _mouse_positions: List[Tuple[int, int]] = [(-1, -1) for i in range(4)]
     _mode: utils.InteractionMode = utils.InteractionMode.POINT
 
-    frame_change_signal = QtCore.pyqtSignal(int) # Emitted when frame number changes
-    playback_change_signal = QtCore.pyqtSignal(bool) # Emitted when video is paused or played
-    metadata_update_signal = QtCore.pyqtSignal(int, float, object) # Emits length, frame rate, resolution
-    point_moved_signal = QtCore.pyqtSignal(bool, utils.Landmark) # Emitted when a landmark is moved
+    _lifted_point: Optional[int] = None
 
     _metric_creation_window: MetricCreationWindow = None
     _metric_popup: MetricWindow = None
@@ -270,65 +251,20 @@ class ImageViewer(QtWidgets.QGraphicsView):
     def __init__(self, reader: cv2.VideoCapture=None, landmarks: pd.DataFrame=None):
         super(ImageViewer, self).__init__()
         self.setup_view_window()
-        self.setup_default_groups()
         if reader is not None:
             self.set_reader(reader)
         if landmarks is not None:
             self.set_landmarks(landmarks)
         self.fitInView()
 
-    def reader_is_good(self) -> bool:
-        return self._reader is not None and self._reader.isOpened()
-
-    def reset_buffer(self) -> bool:
+    def reset(self) -> bool:
         if self._frame_buffer is not None:
             self._frame_buffer.stop()
-            self._frame_buffer = None
-            self._landmarks = None
-            self._landmarks_editing = None
-            self._reader = None
-            self._metrics = []
-        return True
-
-    def set_reader(self, reader: cv2.VideoCapture) -> bool:
-        self._reader = reader
-        if self.reader_is_good():
-            self._video_length = int(self._reader.get(7))
-            self._video_fps = int(self._reader.get(5))
-            self._resolution = (int(self._reader.get(3)), int(self._reader.get(4)))
-            self._scale_factor = max(self._min_dim / max(self._resolution), 1)
-            self.metadata_update_signal.emit(
-                self._video_length,
-                self._video_fps,
-                self._resolution
-            )
-            self.update_frame_buffer()
-            self.fitInView()
-            return True
-        return False
-
-    def set_landmarks(self, landmarks: pd.DataFrame) -> bool:
-        self._landmarks = landmarks
-        self._landmarks_editing = landmarks.copy(deep=True)
-        self.update_frame_buffer()
-        return True
-
-    def update_frame_buffer(self) -> bool:
-        if self._frame_buffer is None:
-            self._frame_buffer = FrameBuffer()
-            self._frame_buffer.frame_changed_signal.connect(self.on_new_frame)
-        if self._landmarks_editing is not None:
-            self._frame_buffer.set_landmarks(self._landmarks_editing)
-        if self._landmark_features is not None:
-            self._frame_buffer.set_landmark_features(self._landmark_features)
-        if self._reader is not None:
-            self._frame_buffer.set_reader(self._reader, self._scale_factor)
-        try:
-            self._resize_on_get_frame = True
-            self._frame_buffer.init_buffer()
-        except AttributeError as e:
-            pass
-        self._frame_buffer.start()
+        self._frame_buffer = None
+        self._landmarks = None
+        self._landmarks_frame = None
+        self._reader = None
+        self._metrics = []
         return True
 
     def setup_view_window(self) -> bool:
@@ -346,60 +282,60 @@ class ImageViewer(QtWidgets.QGraphicsView):
         self.setMouseTracking(True)
         return True
 
-    def add_to_group(self, name: str, indices: List[int]) -> bool:
-        groups = self._landmark_features.groups
-        indices.sort()
-        indices = set(indices)
-        if name not in groups:
-            groups[name] = []
-        for index in indices:
-            for group in groups:
-                try:
-                    groups[group].remove(index)
-                except ValueError as e:
-                    pass
-            groups[name].append(index)
+    def set_reader(self, reader: cv2.VideoCapture) -> bool:
+        if self.reader_is_good(reader):
+            self._reader = reader
+            self._video_length = int(self._reader.get(7))
+            self._video_fps = int(self._reader.get(5))
+            self._resolution = (int(self._reader.get(3)), int(self._reader.get(4)))
+            self._scale_factor = max(self._min_dim / max(self._resolution), 1)
+            if self._img_marker is not None:
+                self._img_marker.set_scale_factor(self._scale_factor)
+            self.metadata_update_signal.emit(
+                self._video_length,
+                self._video_fps,
+                self._resolution
+            )
+            self.update_frame_buffer()
+            self._resize_on_get_frame = True
+            return True
+        return False
+
+    def reader_is_good(self, reader: Optional[cv2.VideoCapture]=None) -> bool:
+        if reader is None:
+            reader = self._reader
+        return reader is not None and reader.isOpened()
+
+    def set_landmarks(self, landmarks: pd.DataFrame) -> bool:
+        self._landmarks = utils.Landmarks(landmarks, n_landmarks=68)
+        self.setup_default_groups()
+        self.setup_default_metrics()
+        if self._img_marker is not None:
+            self._img_marker.set_landmarks(self._landmarks)
+
+        self.update_frame_buffer()
         return True
 
-    def setup_default_groups(self) -> bool:
-        self._landmark_features = utils.LandmarkFeatures()
-        groups = self._landmark_features.groups
-        groups["face"] = list(range(1, 69))
-        # self.add_to_group("right_eye", list(range(37, 42 + 1)))
-        # self.add_to_group("left_eye", list(range(43, 48 + 1)))
-        # self.add_to_group("nose", list(range(28, 36 + 1)))
-        # self.add_to_group("inner_mouth", list(range(61, 68 + 1)))
-        # self.add_to_group("outer_mouth", list(range(49, 60 + 1)))
-        # self.add_to_group("right_eyebrow", list(range(18, 22 + 1)))
-        # self.add_to_group("left_eyebrow", list(range(23, 27 + 1)))
-        # self.add_to_group("chin_outline", list(range(1, 17 + 1)))
-        self.add_to_group("lower_eye", [41, 42, 48, 47])
-        self.add_to_group("upper_mouth", [61, 62, 63, 64, 65])
-        self.add_to_group("lower_mouth", [66, 67, 68])
-        return True
+    def update_frame_buffer(self) -> bool:
+        if self._landmarks is None or not self.reader_is_good():
+            return False
+        if self._frame_buffer is None:
+            self._img_marker = utils.ImageMarker(self._landmarks, self._scale_factor, self.color_config)
+            self._img_marker.set_metrics(self._metrics)
+            self._frame_buffer = FrameBuffer(self._reader, self._img_marker, buffer_radius=15, scale_factor=self._scale_factor)
+            self._frame_buffer.new_frame_signal.connect(self.on_new_frame)
+        else:
+            self._frame_buffer.set_landmarks(self._landmarks)
+            self._frame_buffer.set_reader(self._reader, self._scale_factor)
+        try:
+            self._resize_on_get_frame = True
+            self._frame_buffer.init_buffer()
+            self._frame_buffer.start()
+            return True
+        except AttributeError:
+            return False
 
-    def toggle_landmarks(self) -> bool:
-        self._landmark_features.show.landmarks = not self._landmark_features.show.landmarks
-        if not self._frame_buffer.is_playing():
-            self._frame_buffer.update_curr_frame(remark=True)
-        return self._landmark_features.show.landmarks
-
-    def toggle_bounding_box(self) -> bool:
-        self._landmark_features.show.bounding_box = not self._landmark_features.show.bounding_box
-        if not self._frame_buffer.is_playing():
-            self._frame_buffer.update_curr_frame(remark=True)
-        return self._landmark_features.show.bounding_box
-
-    def toggle_metrics(self) -> bool:
-        self._landmark_features.show.metrics = not self._landmark_features.show.metrics
-        if not self._frame_buffer.is_playing():
-            self._frame_buffer.update_curr_frame(remark=True)
-        return self._landmark_features.show.metrics
-
-    def get_groups(self) -> Dict[str, List[int]]:
-        return self._landmark_features.groups.copy()
-
-    def set_display(self, image=None) -> bool:
+    def set_display(self, image: np.ndarray) -> bool:
         height, width, channels = image.shape
         bytesPerLine = 3 * width
         qt_img = QtGui.QImage(image.data, width, height, bytesPerLine, QtGui.QImage.Format_RGB888)
@@ -415,11 +351,11 @@ class ImageViewer(QtWidgets.QGraphicsView):
             self._display.setPixmap(QtGui.QPixmap())
             return False
 
+    @QtCore.pyqtSlot(object, name="DisplayNewFrame")
     def on_new_frame(self, frame_info: Optional[Tuple[int, np.ndarray, Optional[np.ndarray]]]) -> bool:
         if frame_info is None:
             return False
-        frame_num, frame, marked_frame, self._current_landmarks = frame_info
-        # frame = marked_frame if marked_frame is not None and self._landmark_features.show.landmarks else frame
+        frame_num, frame, marked_frame = frame_info
         frame = marked_frame if marked_frame is not None else frame
         self.frame_change_signal.emit(frame_num)
         self.set_display(frame)
@@ -427,6 +363,36 @@ class ImageViewer(QtWidgets.QGraphicsView):
             self.fitInView()
             self._resize_on_get_frame = False
         return True
+
+    def add_to_group(self, name: str, indices: List[int]) -> bool:
+        group_colors = self.color_config.group.colors
+        if name not in group_colors:
+            group_colors[name] = (255, 255, 255)
+        self._landmarks.set_group(indices, name)
+        return True
+
+    def setup_default_groups(self) -> bool:
+        # TODO: Define the default groups
+        self.add_to_group("lower_eye", [40, 41, 46, 47])
+        # self.add_to_group("upper_mouth", [61, 62, 63, 64, 65])
+        return True
+
+    def setup_default_metrics(self) -> bool:
+        self._metrics.append(utils.Metric(
+            "Inter-Eye Distance",
+            utils.MetricType.LENGTH,
+            [39, 42]
+        ))
+        self._metrics.append(utils.Metric(
+            "Left Mouth Area",
+            utils.MetricType.AREA,
+            list(range(51, 57+1))
+        ))
+        self._metrics.append(utils.Metric(
+            "Right Mouth Area",
+            utils.MetricType.AREA,
+            [57, 58, 59, 48, 49, 50, 51]
+        ))
 
     def play(self) -> bool:
         return self._frame_buffer.play(frame_rate=self._video_fps*self._playback_speed)
@@ -463,21 +429,6 @@ class ImageViewer(QtWidgets.QGraphicsView):
     def get_curr_frame(self) -> int:
         return self._frame_buffer.get_frame_num()
 
-    def fitInView(self):
-        # this function takes care of accommodating the view so that it can fit
-        # in the scene, it resets the zoom to 0 (i think is a overkill, i took
-        # it from somewhere else)
-        rect = QtCore.QRectF(self._display.pixmap().rect())
-        if not rect.isNull():
-            unity = self.transform().mapRect(QtCore.QRectF(0, 0, 1, 1))
-            self.scale(1 / unity.width(), 1 / unity.height())
-            viewrect = self.viewport().rect()
-            scenerect = self.transform().mapRect(rect)
-            factor = min(viewrect.width() / scenerect.width(), viewrect.height() / scenerect.height())
-            self.scale(factor, factor)
-            self.centerOn(rect.center())
-            self._zoom = 0
-
     def wheelEvent(self, event):
         # this take care of the zoom, it modifies the zoom factor if the mouse
         # wheel is moved forward or backward
@@ -497,6 +448,21 @@ class ImageViewer(QtWidgets.QGraphicsView):
             if self._zoom < 0:
                 self._zoom = 0
                 self.fitInView()
+
+    def fitInView(self):
+        # this function takes care of accommodating the view so that it can fit
+        # in the scene, it resets the zoom to 0 (i think is a overkill, i took
+        # it from somewhere else)
+        rect = QtCore.QRectF(self._display.pixmap().rect())
+        if not rect.isNull():
+            unity = self.transform().mapRect(QtCore.QRectF(0, 0, 1, 1))
+            self.scale(1 / unity.width(), 1 / unity.height())
+            viewrect = self.viewport().rect()
+            scenerect = self.transform().mapRect(rect)
+            factor = min(viewrect.width() / scenerect.width(), viewrect.height() / scenerect.height())
+            self.scale(factor, factor)
+            self.centerOn(rect.center())
+            self._zoom = 0
 
     def keyPressEvent(self, event: QtCore.QEvent):
         key = event.key()
@@ -537,7 +503,6 @@ class ImageViewer(QtWidgets.QGraphicsView):
 
     def mousePressEvent(self, event):
         scene_pos = self.mapToScene(event.pos())
-        # TODO: Don't round values
         mouse_pos = (scene_pos.toPoint().x()/self._scale_factor, scene_pos.toPoint().y()/self._scale_factor)
         button = event.button()
         self._mouse_positions[0] = mouse_pos
@@ -566,136 +531,68 @@ class ImageViewer(QtWidgets.QGraphicsView):
             self.select_landmarks()
         QtWidgets.QGraphicsView.mouseReleaseEvent(self, event)
 
-    def get_closest_point(self, mouse_pos, distance_thresh = 6) -> Optional[utils.Landmark]:
-        if self._current_landmarks is None:
-            return None
-        all_landmarks = []
-        for group in self._current_landmarks.landmarks:
-            all_landmarks.extend(self._current_landmarks.landmarks[group])
-        landmark_locs = [landmark.location for landmark in all_landmarks]
-        distance = cdist(np.array(landmark_locs), np.array([mouse_pos]))[:, 0]
-        min_index = np.argmin(distance)
-        min_dist = distance[min_index]
-        if min_dist < distance_thresh:
-            return all_landmarks[min_index]
-        else:
-            return None
-
     def edit_locations(self, mouse_pos: Tuple[int, int]) -> bool:
+        frame_num = self._frame_buffer.get_frame_num()
         if self._lifted_point is None:
-            self._lifted_point = self.get_closest_point(mouse_pos)
+            self._lifted_point = self._landmarks.get_nearest_point(frame_num, mouse_pos)
             if self._lifted_point is not None:
-                self._landmark_features.excluded.append(self._lifted_point.index)
+                self._img_marker.exclude([self._lifted_point])
                 self._frame_buffer.update_curr_frame()
                 self.point_moved_signal.emit(True, self._lifted_point)
             else:
                 return False
         else:
-            self._lifted_point.location = mouse_pos
             if mouse_pos[0] < 0 or mouse_pos[0] > self._resolution[0] or mouse_pos[1] < 0 or mouse_pos[1] > self._resolution[1]:
                 return False
+            self._landmarks.set_location(frame_num, self._lifted_point, mouse_pos)
             self.point_moved_signal.emit(False, self._lifted_point)
-            self._landmark_features.excluded.remove(self._lifted_point.index)
-            frame_num = self._frame_buffer.get_frame_num()
-            self._landmarks_editing.at[self._landmarks_editing["Frame_number"] == frame_num, f"landmark_{self._lifted_point.index - 1}_x"] = mouse_pos[0]
-            self._landmarks_editing.at[self._landmarks_editing["Frame_number"] == frame_num, f"landmark_{self._lifted_point.index - 1}_y"] = mouse_pos[1]
+            self._img_marker.include([self._lifted_point])
+            self._landmarks.set_location(frame_num, self._lifted_point, mouse_pos)
             self._frame_buffer.update_curr_frame()
             self._lifted_point = None
         return True
 
-    def select_landmarks(self, mouse_pos: Optional[Tuple[float, float]]=None) -> int:
+    def select_landmarks(self, mouse_pos: Optional[Tuple[float, float]]=None) -> bool:
+        frame_num = self._frame_buffer.get_frame_num()
         if self._mode == utils.InteractionMode.POINT:
-            selected_landmark = self.get_closest_point(mouse_pos)
-            if selected_landmark is not None:
-                self._selected_landmarks.append(selected_landmark)
+            selected_landmark = self._landmarks.get_nearest_point(frame_num, mouse_pos)
+            if selected_landmark is None:
+                self._img_marker.deselect()
+                self._metric_selector = []
             else:
-                self._selected_landmarks = []
+                self._img_marker.select([selected_landmark])
+                self._metric_selector.append(selected_landmark)
         elif self._mode == utils.InteractionMode.AREA:
-            if self._current_landmarks is None:
-                return 0
-            all_landmarks = []
-            for group in self._current_landmarks.landmarks:
-                all_landmarks.extend(self._current_landmarks.landmarks[group])
-            selected_landmarks = []
             x_max = max(self._mouse_positions[0][0], self._mouse_positions[1][0])
             x_min = min(self._mouse_positions[0][0], self._mouse_positions[1][0])
             y_max = max(self._mouse_positions[0][1], self._mouse_positions[1][1])
             y_min = min(self._mouse_positions[0][1], self._mouse_positions[1][1])
-            for landmark in all_landmarks:
-                in_x = x_max >= landmark.location[0] >= x_min
-                in_y = y_max >= landmark.location[1] >= y_min
-                if in_x and in_y:
-                    selected_landmarks.append(landmark)
+            selected_landmarks = self._landmarks.get_point_area(frame_num, x_max, x_min, y_max, y_min)
             if len(selected_landmarks) < 1:
-                self._selected_landmarks = []
+                self._img_marker.deselect()
+                self._metric_selector = []
             else:
-                self._selected_landmarks.append(utils.LandmarkGroup(selected_landmarks))
-        self._landmark_features.selected = []
-        for landmark_def in self._selected_landmarks:
-            if isinstance(landmark_def, utils.Landmark):
-                self._landmark_features.selected.append(landmark_def.index)
-            else:
-                self._landmark_features.selected.extend([landmark.index for landmark in landmark_def.landmarks])
+                self._img_marker.select(selected_landmarks)
+                self._metric_selector.append(selected_landmarks)
         self._frame_buffer.update_curr_frame(remark=True)
-        return len(self._selected_landmarks)
-
-    def draw_metrics(self) -> bool:
-        # TODO: Make this able to draw centroids of landmark groups
-        self._landmark_features.lines = []
-        for metric in self._metrics:
-            type = metric.type
-            landmarks = [landmark.get_index() for landmark in metric.landmarks]
-            if type == utils.MetricType.AREA:
-                landmarks += [landmarks[0]]
-            self._landmark_features.lines.append(landmarks)
-        self._frame_buffer.update_curr_frame()
+        self.check_metric_completion()
         return True
 
-    def create_metric(self, type: utils.MetricType, name: str=None) -> bool:
-        if len(self._selected_landmarks) < 2:
-            return False
-        if name is None:
-            name = f"{type.name}:{','.join([str(landmark.index) for landmark in self._selected_landmarks if isinstance(landmark, utils.Landmark)])}"
-        metric = utils.Metric(name, type, self._selected_landmarks[:])
-        self._metrics.append(metric)
-        if self._metric_creation_window is not None:
-            self._metric_creation_window.close()
-        self._metric_creation_window = MetricCreationWindow(self, metric, self._metrics)
-        self._metric_creation_window.show()
-        self.draw_metrics()
-        return True
-
-    def remove_metric(self) -> bool:
-        # Removes the metric represented by the selected landmarks
-        # TODO: Make this work with centroids
-        for i, metric in enumerate(self._metrics):
-            landmarks = [landmark.index for landmark in metric.landmarks if isinstance(landmark, utils.Landmark)]
-            all_included = True
-            for landmark in self._selected_landmarks:
-                all_included = all_included and landmark.index in landmarks
-            if all_included:
-                self._metrics.remove(metric)
-        self.draw_metrics()
-        return True
-
-    def remove_metric_by_index(self, index: int) -> bool:
-        try:
-            del self._metrics[index]
-            self.draw_metrics()
+    def check_metric_completion(self) -> bool:
+        if len(self._metric_selector) > 1 and self._metric_selector[-1] == self._metric_selector[0]:
+            self._metrics.append(utils.Metric(
+                name=f"PLACEHOLDER:{','.join([str(landmark) for landmark in self._metric_selector[:-1]])}",
+                type=utils.MetricType.LENGTH,
+                landmarks=self._metric_selector[:-1]
+            ))
             return True
-        except IndexError:
-            return False
+        return False
 
     def analyze_metrics(self) -> bool:
         # Open a window that lists the metrics
-        self._metric_popup = MetricWindow(self, self._metrics, self._landmarks_editing)
+        self._metric_popup = MetricWindow(self, self._metrics, self._landmarks)
         self._metric_popup.show()
-        self._metric_popup.metric_done_signal.connect(self.on_metrics_done)
-        pass
-
-    def on_metrics_done(self, metrics: pd.DataFrame):
-        # metrics.to_csv("./movement_analysis/metrics.csv")
-        return
+        return True
 
     def save_edits(self, save_path: str) -> bool:
         # TODO: Make this more robust to users inputting unexpected values
@@ -704,13 +601,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
         old_path = ".".join(save_path.split(".")[:-1])+"_orig.csv"
         if os.path.exists(save_path) and not os.path.exists(old_path):
             os.rename(save_path, old_path)
-        self._landmarks_editing.to_csv(save_path, index=False)
+        frame = self._landmarks.get_dataframe()
+        frame.to_csv(save_path, index=False)
 
-    # Event Connections
-    @QtCore.pyqtSlot(int)
-    def on_frame_change(self, frame: int):
-        if self._lifted_point is not None:
-            self.point_moved_signal.emit(False, self._lifted_point)
-            self._lifted_point = None
-        self._eyes_lifted = {"left": False, "right": False}
 

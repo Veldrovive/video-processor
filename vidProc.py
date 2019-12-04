@@ -131,12 +131,12 @@ class MainWindow(QtWidgets.QMainWindow):
         process_some_frame.setShortcut("Ctrl+A")
         process_some_frame.setStatusTip(
             'Determine facial landmarks for some frames in the video')
-        process_some_frame.triggered.connect(self.process_frames)
+        # process_some_frame.triggered.connect(self.process_frames)
 
         # Top toolbar population
         toggle_landmark = QtWidgets.QAction('Show/Hide facial landmarks', self)
         toggle_landmark.setIcon(QtGui.QIcon('./icons/facial-analysis.png'))
-        toggle_landmark.triggered.connect(self.viewer.toggle_landmarks)
+        # toggle_landmark.triggered.connect(self.viewer.toggle_landmarks)
 
         show_metrics = QtWidgets.QAction(
             'Display facial metrics in current frame', self)
@@ -214,7 +214,7 @@ class MainWindow(QtWidgets.QMainWindow):
             filename = os.path.normpath(filename)
             self._file_path = filename
             landmark_file = filename[:-3] + 'csv'
-            self.viewer.reset_buffer()
+            self.viewer.reset()
             self.open_video_file(filename)
             if os.path.exists(landmark_file):
                 self.open_landmark_file(landmark_file)
