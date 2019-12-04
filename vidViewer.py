@@ -5,17 +5,38 @@ import numpy as np
 import cv2
 import pandas as pd
 
+from queue import Queue
+
 import config
 import utils
 
 from popups.MetricPopup import MetricWindow
 from popups.MetricCreationPopup import MetricCreationWindow
 
+class FrameMarker(QtCore.QRunnable):
+    _img_marker: utils.ImageMarker = None
+    _frame: np.ndarray
+    _frame_num: int
+    _scale_factor: float
+
+    frame_done_signal = QtCore.pyqtSignal(int, np.ndarray) # Returns the frame number and marked up image
+
+    def __init__(self, target=None, args=()):
+        super(FrameMarker, self).__init__()
+        self.target = target
+        self.args = args
+
+    def run(self):
+        self.target(*self.args)
+
 class FrameBuffer(QtCore.QThread):
+    _thead_pool: QtCore.QThreadPool
+
     _reader: Optional[cv2.VideoCapture] = None
     _marker: Optional[utils.ImageMarker] = None
 
     _buffer: list
+    _new_frames: Queue = Queue()
     _buffer_radius: int
     _buffer_length: int
 
@@ -35,6 +56,8 @@ class FrameBuffer(QtCore.QThread):
                  scale_factor: float = 1,
                  buffer_radius=15):
         super(FrameBuffer, self).__init__()
+        self._thead_pool = QtCore.QThreadPool()
+
         self.set_reader(reader)
         self._marker = marker
 
@@ -108,61 +131,38 @@ class FrameBuffer(QtCore.QThread):
     def is_playing(self) -> bool:
         return self._playback_timer.isActive()
 
-    def get_marked_frame(self, frame: np.ndarray, frame_num: int) -> Optional[np.ndarray]:
-        if frame_num > self._max_frame:
-            return None
-        else:
-            return self._marker.markup_image(frame, frame_num)
-
-    def read(self) -> Optional[np.ndarray]:
-        ret, frame = self._reader.read()
-        if not ret:
-            return None
-        if self._scale_factor != 1:
-            frame = cv2.resize(frame, None, fx=self._scale_factor, fy=self._scale_factor, interpolation = cv2.INTER_CUBIC)
-        # frame = cv2.blur(frame, (3, 3))
-        frame = cv2.GaussianBlur(frame, (3, 3), 0)
-        # frame = cv2.medianBlur(frame, 3)
-        return frame
-
-    def read_frames(self, start: int, num_frames: int, insert_pos: utils.Position) -> bool:
-        def insert(frame_obj):
-            if insert_pos == utils.Position.BEG:
-                self._buffer.pop(0)
-                self._buffer.append(frame_obj)
-            else:
-                self._buffer.pop()
-                self._buffer.insert(0, frame_obj)
+    def read_frames(self, start: int, num_frames: int):
         reader_loc = self._reader.get(1)
         if reader_loc != start:
             self._reader.set(1, max(0, start))
         for i in range(num_frames):
             true_frame = start+i
-            if true_frame < 0:
-                insert(None)
-            elif true_frame > self._max_frame:
-                insert(None)
-            else:
-                # ret, frame = self._reader.read()
-                frame = self.read()
-                # if ret:
-                if frame is not None:
-                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    marked_frame = self.get_marked_frame(frame, true_frame)
-                    insert((true_frame, frame, marked_frame))
-                else:
-                    insert(None)
-        return True
+            if 0 <= true_frame <= self._max_frame:
+                ret, frame = self._reader.read()
+                if ret:
+                    frame_marker = FrameMarker(target=self.process_frame,
+                                               args=(true_frame, frame,))
+                    self._thead_pool.start(frame_marker)
+
+    def process_frame(self, frame_num, frame) -> bool:
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        if self._scale_factor != 1:
+            frame = cv2.resize(frame, None, fx=self._scale_factor,
+                               fy=self._scale_factor,
+                               interpolation=cv2.INTER_CUBIC)
+        frame = cv2.GaussianBlur(frame, (3, 3), 0)
+        marked_frame = self._marker.markup_image(frame, frame_num)
+        self._new_frames.put((frame_num, frame, marked_frame))
 
     def update(self) -> bool:
         if self._force_update:
             updated_current = False
             if self._buffer[self._buffer_radius] is not None:
                 index, frame, marked_frame = self._buffer[self._buffer_radius]
-                marked_up = self.get_marked_frame(frame, index)
+                marked_up = self._marker.markup_image(frame, index)
                 self.new_frame_signal.emit((index, frame, marked_up))
                 updated_current = True
-            self.read_frames(self._curr_frame-self._buffer_radius, self._buffer_length, utils.Position.BEG)
+            self.read_frames(self._curr_frame-self._buffer_radius, self._buffer_length)
             if not updated_current:
                 self.new_frame_signal.emit(self._buffer[self._buffer_radius])
             self._force_update = False
@@ -172,33 +172,45 @@ class FrameBuffer(QtCore.QThread):
 
         delta = self._target_frame - self._curr_frame
 
-        frame_emit = False
         if abs(delta) <= self._buffer_radius:
             self.new_frame_signal.emit(self._buffer[delta+self._buffer_radius])
-            frame_emit = True
+            self._curr_frame = self._target_frame
 
         start = 0
         read_num = 0
-        reader_pos = utils.Position.BEG
         if abs(delta) >= self._buffer_length:
             start = self._target_frame-self._buffer_radius
             read_num = self._buffer_length
-            reader_pos = utils.Position.BEG
         elif delta > 0:
-            start = self._curr_frame+self._buffer_radius+1
+            start = self._curr_frame+self._buffer_radius
             read_num = delta
-            reader_pos = utils.Position.BEG
         elif delta < 0:
             start = self._target_frame-self._buffer_radius
             read_num = abs(delta)
-            reader_pos = utils.Position.END
 
-        self.read_frames(start, read_num, reader_pos)
+        self.read_frames(start, read_num)
+        self.update_buffer()
 
-        if not frame_emit:
-            self.new_frame_signal.emit(self._buffer[self._buffer_radius])
-            pass
-        self._curr_frame = self._target_frame
+    def update_buffer(self) -> bool:
+        new_buffer = [None for i in range(self._buffer_length)]
+        for frame in self._buffer:
+            if frame is None:
+                continue
+            buffer_pos = frame[0] - self._target_frame + self._buffer_radius
+            if 0 <= buffer_pos < self._buffer_length:
+                new_buffer[buffer_pos] = frame
+        while not self._new_frames.empty():
+            new_frame = self._new_frames.get()
+            if new_frame is None:
+                continue
+            if new_frame[0] == self._target_frame:
+                self.new_frame_signal.emit(new_frame)
+                self._curr_frame = self._target_frame
+            buffer_pos = new_frame[0] - self._target_frame + self._buffer_radius
+            if 0 <= buffer_pos < self._buffer_length:
+                new_buffer[buffer_pos] = new_frame
+        self._buffer = new_buffer
+        return True
 
     def stop(self) -> bool:
         self._running = False
@@ -207,6 +219,8 @@ class FrameBuffer(QtCore.QThread):
     def run(self):
         while self._running:
             self.update()
+            if not self._new_frames.empty():
+                self.update_buffer()
 
 class ImageViewer(QtWidgets.QGraphicsView):
     _zoom_factor: float = 0.1  # Defines the zoom speed
