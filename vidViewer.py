@@ -12,6 +12,7 @@ import utils
 
 from popups.MetricPopup import MetricWindow
 from popups.MetricCreationPopup import MetricCreationWindow
+from popups.MetricDisplayPopup import MetricDisplayWindow
 
 class FrameMarker(QtCore.QRunnable):
     _img_marker: utils.ImageMarker = None
@@ -113,6 +114,12 @@ class FrameBuffer(QtCore.QThread):
 
     def get_frame_num(self) -> int:
         return self._curr_frame
+
+    def get_marked_frame(self) -> Optional[np.ndarray]:
+        frame = self._buffer[self._buffer_radius]
+        if frame is not None:
+            return frame[2]
+        return None
 
     def play(self, frame_rate: float=30,  cond_was_playing: bool=False) -> bool:
         if cond_was_playing and not self._was_playing:
@@ -244,7 +251,9 @@ class ImageViewer(QtWidgets.QGraphicsView):
     _landmarks_frame:  Optional[pd.DataFrame] = None
 
     _metrics: List[utils.Metric] = []
+    _working_metrics: List[utils.Metric] = []
     _metric_selector: List[int] = []
+    _creating_metric: bool = True
 
     color_config: config.Config = config.Config()
 
@@ -261,6 +270,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
 
     _metric_creation_window: MetricCreationWindow = None
     _metric_popup: MetricWindow = None
+    _metric_display_popup: MetricDisplayWindow = None
 
     def __init__(self, reader: cv2.VideoCapture=None, landmarks: pd.DataFrame=None):
         super(ImageViewer, self).__init__()
@@ -280,6 +290,10 @@ class ImageViewer(QtWidgets.QGraphicsView):
         self._reader = None
         self._metrics = []
         return True
+
+    def ready(self) -> bool:
+        buffer_ready = self._frame_buffer is not None
+        return buffer_ready
 
     def setup_view_window(self) -> bool:
         self._scene = QtWidgets.QGraphicsScene(self)
@@ -324,8 +338,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
         self._landmarks = utils.Landmarks(landmarks, n_landmarks=68)
         self.setup_default_groups()
         self.setup_default_metrics()
-        if self._img_marker is not None:
-            self._img_marker.set_landmarks(self._landmarks)
+        self._img_marker = utils.ImageMarker(self._landmarks, self._scale_factor, self.color_config)
 
         self.update_frame_buffer()
         return True
@@ -335,11 +348,11 @@ class ImageViewer(QtWidgets.QGraphicsView):
             return False
         if self._frame_buffer is None:
             self._img_marker = utils.ImageMarker(self._landmarks, self._scale_factor, self.color_config)
-            self._img_marker.set_metrics(self._metrics)
+            self._img_marker.set_metrics(self._metrics, self._working_metrics)
             self._frame_buffer = FrameBuffer(self._reader, self._img_marker, buffer_radius=15, scale_factor=self._scale_factor)
             self._frame_buffer.new_frame_signal.connect(self.on_new_frame)
         else:
-            self._frame_buffer.set_landmarks(self._landmarks)
+            self._frame_buffer.set_img_marker(self._img_marker)
             self._frame_buffer.set_reader(self._reader, self._scale_factor)
         try:
             self._resize_on_get_frame = True
@@ -364,6 +377,9 @@ class ImageViewer(QtWidgets.QGraphicsView):
             self.setDragMode(QtWidgets.QGraphicsView.NoDrag)
             self._display.setPixmap(QtGui.QPixmap())
             return False
+
+    def get_current_view(self) -> Optional[np.ndarray]:
+        return self._frame_buffer.get_marked_frame()
 
     @QtCore.pyqtSlot(object, name="DisplayNewFrame")
     def on_new_frame(self, frame_info: Optional[Tuple[int, np.ndarray, Optional[np.ndarray]]]) -> bool:
@@ -407,11 +423,45 @@ class ImageViewer(QtWidgets.QGraphicsView):
             utils.MetricType.AREA,
             [57, 58, 59, 48, 49, 50, 51]
         ))
+        self._metrics.append(utils.Metric(
+            "Left Eyebrow-Nose Distance",
+            utils.MetricType.LENGTH,
+            [list(range(17, 21+1)), 30]
+        ))
+        self._metrics.append(utils.Metric(
+            "Right Eyebrow-Nose Distance",
+            utils.MetricType.LENGTH,
+            [list(range(22, 26 + 1)), 30]
+        ))
+        self._metrics.append(utils.Metric(
+            "Nose-Mouth Distance",
+            utils.MetricType.LENGTH,
+            [33, 57]
+        ))
+
+    def toggle_landmarks(self) -> bool:
+        self._img_marker.toggle_landmarks()
+        if not self._frame_buffer.is_playing():
+            self._frame_buffer.update_curr_frame()
+
+    def toggle_bounding_box(self) -> bool:
+        self._img_marker.toggle_bounding_box()
+        if not self._frame_buffer.is_playing():
+            self._frame_buffer.update_curr_frame()
+
+    def toggle_metrics(self) -> bool:
+        self._img_marker.toggle_metrics()
+        if not self._frame_buffer.is_playing():
+            self._frame_buffer.update_curr_frame()
 
     def play(self) -> bool:
+        if not self.ready():
+            return False
         return self._frame_buffer.play(frame_rate=self._video_fps*self._playback_speed)
 
     def toggle_play(self) -> bool:
+        if not self.ready():
+            return False
         if self._frame_buffer.is_playing():
             self._frame_buffer.pause()
             self.playback_change_signal.emit(True)
@@ -422,25 +472,35 @@ class ImageViewer(QtWidgets.QGraphicsView):
             return True
 
     def pause(self) -> bool:
+        if not self.ready():
+            return False
         return self._frame_buffer.pause()
 
     def is_playing(self) -> bool:
-        if self._frame_buffer is not None:
+        if self.ready():
             return self._frame_buffer.is_playing()
         else:
             return False
 
     def set_playback_speed(self, speed: float = 1) -> bool:
         self._playback_speed = speed
+        if not self.ready():
+            return False
         return self._frame_buffer.play(frame_rate = self._video_fps*self._playback_speed, cond_was_playing=True)
 
     def jump_frames(self, delta=1) -> bool:
+        if not self.ready():
+            return False
         return self._frame_buffer.set_frame(delta=delta)
 
     def seek_frame(self, frame=0) -> bool:
+        if not self.ready():
+            return False
         return self._frame_buffer.set_frame(index=frame)
 
     def get_curr_frame(self) -> int:
+        if not self._ready():
+            return -1
         return self._frame_buffer.get_frame_num()
 
     def wheelEvent(self, event):
@@ -475,6 +535,7 @@ class ImageViewer(QtWidgets.QGraphicsView):
             scenerect = self.transform().mapRect(rect)
             factor = min(viewrect.width() / scenerect.width(), viewrect.height() / scenerect.height())
             self.scale(factor, factor)
+            self.setSceneRect(rect)
             self.centerOn(rect.center())
             self._zoom = 0
 
@@ -516,33 +577,35 @@ class ImageViewer(QtWidgets.QGraphicsView):
             self._held_keys.remove(key)
 
     def mousePressEvent(self, event):
-        scene_pos = self.mapToScene(event.pos())
-        mouse_pos = (scene_pos.toPoint().x()/self._scale_factor, scene_pos.toPoint().y()/self._scale_factor)
-        button = event.button()
-        self._mouse_positions[0] = mouse_pos
-        self._mouse_positions[2] = event.pos()
-        if self._mode == utils.InteractionMode.POINT:
-            self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
-        if self._mode == utils.InteractionMode.AREA:
-            self.setDragMode(QtWidgets.QGraphicsView.RubberBandDrag)
+        if self.ready():
+            scene_pos = self.mapToScene(event.pos())
+            mouse_pos = (scene_pos.toPoint().x()/self._scale_factor, scene_pos.toPoint().y()/self._scale_factor)
+            button = event.button()
+            self._mouse_positions[0] = mouse_pos
+            self._mouse_positions[2] = event.pos()
+            if self._mode == utils.InteractionMode.POINT:
+                self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
+            if self._mode == utils.InteractionMode.AREA:
+                self.setDragMode(QtWidgets.QGraphicsView.RubberBandDrag)
         QtWidgets.QGraphicsView.mousePressEvent(self, event)
 
     def mouseReleaseEvent(self, event):
-        self.setDragMode(QtWidgets.QGraphicsView.NoDrag)
-        scene_pos = self.mapToScene(event.pos())
-        mouse_pos = (scene_pos.toPoint().x() / self._scale_factor,
-                     scene_pos.toPoint().y() / self._scale_factor)
-        button = event.button()
-        self._mouse_positions[1] = mouse_pos
-        self._mouse_positions[3] = event.pos()
-        if self._mode == utils.InteractionMode.POINT:
-            if self._mouse_positions[2] == self._mouse_positions[3]:
-                if button == QtCore.Qt.RightButton:
-                    self.edit_locations(mouse_pos)
-                else:
-                    self.select_landmarks(mouse_pos)
-        if self._mode == utils.InteractionMode.AREA:
-            self.select_landmarks()
+        if self.ready():
+            self.setDragMode(QtWidgets.QGraphicsView.NoDrag)
+            scene_pos = self.mapToScene(event.pos())
+            mouse_pos = (scene_pos.toPoint().x() / self._scale_factor,
+                         scene_pos.toPoint().y() / self._scale_factor)
+            button = event.button()
+            self._mouse_positions[1] = mouse_pos
+            self._mouse_positions[3] = event.pos()
+            if self._mode == utils.InteractionMode.POINT:
+                if self._mouse_positions[2] == self._mouse_positions[3]:
+                    if button == QtCore.Qt.RightButton:
+                        self.edit_locations(mouse_pos)
+                    else:
+                        self.select_landmarks(mouse_pos)
+            if self._mode == utils.InteractionMode.AREA:
+                self.select_landmarks()
         QtWidgets.QGraphicsView.mouseReleaseEvent(self, event)
 
     def edit_locations(self, mouse_pos: Tuple[int, int]) -> bool:
@@ -588,8 +651,8 @@ class ImageViewer(QtWidgets.QGraphicsView):
             else:
                 self._img_marker.select(selected_landmarks)
                 self._metric_selector.append(selected_landmarks)
-        self._frame_buffer.update_curr_frame(remark=True)
         self.check_metric_completion()
+        self._frame_buffer.update_curr_frame(remark=True)
         return True
 
     def check_metric_completion(self) -> bool:
@@ -599,14 +662,43 @@ class ImageViewer(QtWidgets.QGraphicsView):
                 type=utils.MetricType.LENGTH,
                 landmarks=self._metric_selector[:-1]
             ))
+            self._metric_selector = []
+            self._img_marker.deselect()
             return True
+        else:
+            self._working_metrics.clear()
+            if self._creating_metric:
+                self._working_metrics.append(utils.Metric(
+                    name="Working",
+                    type=utils.MetricType.LENGTH,
+                    landmarks=self._metric_selector.copy()
+                ))
         return False
+
+    def remove_metric(self) -> bool:
+        # Removes the metric represented by the selected landmarks
+        # TODO: Make this work with centroids
+        for i, metric in enumerate(self._metrics):
+            all_included = True
+            for landmark in self._metric_selector:
+                all_included = all_included and landmark in metric.landmarks
+            if all_included:
+                self._metrics.remove(metric)
+        self._frame_buffer.update_curr_frame()
+        return True
 
     def analyze_metrics(self) -> bool:
         # Open a window that lists the metrics
         self._metric_popup = MetricWindow(self, self._metrics, self._landmarks)
         self._metric_popup.show()
+        self._metric_popup.metric_done_signal.connect(self.on_metrics_done)
         return True
+
+    @QtCore.pyqtSlot(pd.DataFrame)
+    def on_metrics_done(self, metrics: pd.DataFrame):
+        self._metric_display_popup = MetricDisplayWindow(self, metrics)
+        self._metric_display_popup.show()
+        self._metric_display_popup.select_frame_signal.connect(self.seek_frame)
 
     def save_edits(self, save_path: str) -> bool:
         # TODO: Make this more robust to users inputting unexpected values

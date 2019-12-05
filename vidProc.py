@@ -56,6 +56,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.slider_bottom.setValue(1)
         self.slider_bottom.setTickInterval(1)
         self.slider_bottom.setEnabled(False)
+        self.slider_bottom.valueChanged.connect(self.slider_value_change)
         self.slider_bottom.sliderPressed.connect(self.slider_pressed)
         self.slider_bottom.sliderReleased.connect(self.slider_value_final)
 
@@ -136,7 +137,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Top toolbar population
         toggle_landmark = QtWidgets.QAction('Show/Hide facial landmarks', self)
         toggle_landmark.setIcon(QtGui.QIcon('./icons/facial-analysis.png'))
-        # toggle_landmark.triggered.connect(self.viewer.toggle_landmarks)
+        toggle_landmark.triggered.connect(self.viewer.toggle_landmarks)
 
         show_metrics = QtWidgets.QAction(
             'Display facial metrics in current frame', self)
@@ -144,6 +145,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         snapshot = QtWidgets.QAction('Save snapshot of current view', self)
         snapshot.setIcon(QtGui.QIcon('./icons/profile.png'))
+        snapshot.triggered.connect(self.save_snapshot)
 
         self.toolBar_Top.addActions((toggle_landmark, show_metrics, snapshot))
         self.toolBar_Top.setIconSize(QtCore.QSize(50, 50))
@@ -247,10 +249,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config_window.show()
         # TODO: Make it so that you cannot open more than one config window
 
+    def save_snapshot(self) -> bool:
+        if self.viewer is None:
+            return False
+        snapshot = self.viewer.get_current_view()
+        if snapshot is None:
+            return False
+        save_path = QtWidgets.QFileDialog.getSaveFileName(self, 'Save Snapshot', filter="Images (*.png *.jpg)")[0]
+        bgr_img = cv2.cvtColor(snapshot, cv2.COLOR_RGB2BGR)
+        cv2.imwrite(save_path, bgr_img)
+
     # Events:
     def resizeEvent(self, event):
         self.viewer.fitInView()
-
     @QtCore.pyqtSlot(int, float, object)
     def on_vid_metadata_change(self, length: int, fps: int, resolution: Tuple[int, int]):
         self.slider_bottom.setMinimum(1)
@@ -272,6 +283,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._video_playing:
             self.viewer.play()
             self._video_playing = False
+
+    def slider_value_change(self):
+        frame = self.slider_bottom.value()
+        self.frameLabel.setText(
+            'Frame : ' + str(int(frame)) + '/' + str(
+                self.viewer._video_length))
 
     @QtCore.pyqtSlot(int)
     def slider_on_frame_change(self, frame: int):

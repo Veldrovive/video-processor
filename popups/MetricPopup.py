@@ -12,7 +12,7 @@ class MetricCalc(QtCore.QThread):
     _areas = Dict[str, List[float]]
 
     frame_done_signal = QtCore.pyqtSignal(int, float)  # Emits the index of the frame as well as the percent complete
-    metrics_complete_signal = QtCore.pyqtSignal(object)  # Emits the results of the metrics as a dataframe
+    metrics_complete_signal = QtCore.pyqtSignal(pd.DataFrame)  # Emits the results of the metrics as a dataframe
 
     def __init__(self, metrics, landmarks: utils.Landmarks):
         super(MetricCalc, self).__init__()
@@ -126,9 +126,7 @@ class MetricWindow(QtWidgets.QMainWindow):
         self.save_metrics()
 
     def file_save(self):
-        save_path = QtWidgets.QFileDialog.getSaveFileName(self, 'Save File')[0]
-        if save_path[-4:] != ".csv":
-            save_path += ".csv"
+        save_path = QtWidgets.QFileDialog.getSaveFileName(self, 'Save File', filter='CSV(*.csv)')[0]
         self._save_path = save_path
         self.save_metrics()
 
@@ -137,6 +135,7 @@ class MetricWindow(QtWidgets.QMainWindow):
             return False
         if self._final_metrics is None:
             return False
-        self._final_metrics.to_csv(self._save_path)
+        if len(self._save_path) > 0:
+            self._final_metrics.to_csv(self._save_path)
         self.close()
 

@@ -81,6 +81,7 @@ class Landmarks:
     def __init__(self, landmarks: pd.DataFrame, n_landmarks: int = 68):
         self._landmarks_frame = landmarks
         self._n_landmarks = n_landmarks
+        self._landmarks = []
         self.populate_landmarks()
         self.populate_bounding_boxes()
 
@@ -208,6 +209,7 @@ class ImageMarker:
     _config: config.Config = None
 
     _metrics: List[Metric] = []
+    _working_metrics: List[Metric] = []
 
     def __init__(self, landmarks: Landmarks=None, scale_factor: float=1, group_config: config.Config = None):
         if group_config is None:
@@ -239,8 +241,11 @@ class ImageMarker:
         return self._show["metrics"]
 
     # Metric Management
-    def set_metrics(self, metrics: List[Metric]) -> bool:
-        self._metrics = metrics
+    def set_metrics(self, metrics: Optional[List[Metric]] = None, working_metrics: Optional[List[Metric]] = None) -> bool:
+        if working_metrics is not None:
+            self._working_metrics = working_metrics
+        if metrics is not None:
+            self._metrics = metrics
         return True
 
     # Group management
@@ -318,7 +323,9 @@ class ImageMarker:
                     pass
 
         if self._show["metrics"]:
-            for metric in self._metrics:
+            for metric in self._metrics+self._working_metrics:
+                if len(metric.landmarks) < 1:
+                    continue
                 last_point = self._cast_pos(self._get_point(frame_num, metric.landmarks[0])[0], self._scale_factor)
                 for landmark_def in metric.landmarks:
                     curr_point = self._cast_pos(self._get_point(frame_num, landmark_def)[0], self._scale_factor)
