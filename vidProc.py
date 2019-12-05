@@ -257,7 +257,10 @@ class MainWindow(QtWidgets.QMainWindow):
             return False
         save_path = QtWidgets.QFileDialog.getSaveFileName(self, 'Save Snapshot', filter="Images (*.png *.jpg)")[0]
         bgr_img = cv2.cvtColor(snapshot, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(save_path, bgr_img)
+        try:
+            cv2.imwrite(save_path, bgr_img)
+        except cv2.error:
+            pass
 
     # Events:
     def resizeEvent(self, event):

@@ -104,6 +104,7 @@ class MetricWindow(QtWidgets.QMainWindow):
                     pass
         if len(running_metrics) < 1:
             return False
+        # TODO: Make this a ThreadPool instead of a single thread
         metric_calc = MetricCalc(running_metrics, self._landmarks)
         metric_calc.started.connect(self.on_metrics_start)
         metric_calc.frame_done_signal.connect(self.on_frame_done)

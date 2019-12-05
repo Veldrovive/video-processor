@@ -1,4 +1,4 @@
-from PyQt5 import QtWidgets, QtGui, QtCore
+from PyQt5 import QtWidgets, QtGui, QtCore, uic
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
 import matplotlib
@@ -7,7 +7,7 @@ import os
 import pandas as pd
 from scipy.signal import savgol_filter
 
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 
 class ToolBar(NavigationToolbar):
     selecting_frame: bool = False
@@ -21,7 +21,9 @@ class ToolBar(NavigationToolbar):
     def _init_toolbar(self):
         self.basedir = os.path.join(matplotlib.rcParams['datapath'], 'images')
         self.toolitems = list(self.toolitems)
+        del self.toolitems[7]
         self.toolitems.insert(6, ("Frame", "Go to frame", "move", "frame"))
+        self.toolitems.insert(7, tuple([None for i in range(4)]))
 
         for text, tooltip_text, image_file, callback in self.toolitems:
             if text is None:
@@ -99,8 +101,16 @@ class Canvas(FigureCanvas):
 
 
 class MetricDisplayWindow(QtWidgets.QMainWindow):
+    main_container: QtWidgets.QVBoxLayout
+    metric_container: QtWidgets.QHBoxLayout
+    normalize_checkbox: QtWidgets.QCheckBox
+    subtract_checkbox: QtWidgets.QCheckBox
+
+    _subtract: bool = False
+    _normalize: bool = False
+
     _metrics: pd.DataFrame
-    _main_widget = QtWidgets.QWidget
+    _metric_checkboxes: Dict[str, QtWidgets.QCheckBox] = None
     _figure: Figure
     _canvas: FigureCanvas
     _toolbar: NavigationToolbar
@@ -110,29 +120,41 @@ class MetricDisplayWindow(QtWidgets.QMainWindow):
     curr_display: int = 0
     num_metrics: int = 0
 
+    colors = ["b", "g", "r", "c", "m", "y", "k", "w"]
+
     ax = None
 
     select_frame_signal = QtCore.pyqtSignal(int)
 
     def __init__(self, parent=None, metrics: Optional[pd.DataFrame]=None):
         super(MetricDisplayWindow, self).__init__(parent=parent)
-        self._main_widget = QtWidgets.QWidget()
-        self.setCentralWidget(self._main_widget)
+        uic.loadUi("uis/MetricViewerPopup.ui", self)
+
+        self._metrics = metrics
         self._figure = Figure()
         self._canvas = Canvas(self._figure)
         self._toolbar = ToolBar(self._canvas, self)
-        self._metrics = metrics
 
         self._toolbar.mouse_move_signal.connect(self.on_mouse_move)
         self._canvas.mouse_clicked_signal.connect(self.on_click)
 
-        layout = QtWidgets.QVBoxLayout(self._main_widget)
+        self.normalize_checkbox.stateChanged.connect(self.set_normalize)
+        self.subtract_checkbox.stateChanged.connect(self.set_subtract)
+
+        layout = self.main_container
         layout.addWidget(self._canvas)
         self.addToolBar(self._toolbar)
 
-        self.num_metrics = len(self._metrics.columns)-1
-        if self._metrics is not None:
-            self.set_metric_index(index=0)
+        self._metric_checkboxes = {}
+        for i, metric in enumerate(self._metrics.columns[1:]):
+            metric_checkbox = QtWidgets.QCheckBox(metric)
+            metric_checkbox.stateChanged.connect(self.set_metrics_by_checkbox)
+            if i == len(self._metrics.columns)-2:
+                metric_checkbox.toggle()
+            self._metric_checkboxes[metric] = metric_checkbox
+            self.metric_container.insertWidget(0, metric_checkbox)
+        self.set_metrics_by_checkbox()
+
 
     @QtCore.pyqtSlot(object)
     def on_mouse_move(self, pos: Tuple[float, float]):
@@ -143,55 +165,80 @@ class MetricDisplayWindow(QtWidgets.QMainWindow):
         if self._toolbar.selecting_frame and self._mouse_pos is not None:
             self.select_frame_signal.emit(self._mouse_pos[0])
 
-    def keyPressEvent(self, event: QtCore.QEvent):
-        key = event.key()
-        if key == QtCore.Qt.Key_Left:
-            self.curr_display += 1
-            if self.curr_display >= self.num_metrics:
-                self.curr_display = 0
-            self.set_metric_index(index=self.curr_display)
-        if key == QtCore.Qt.Key_Right:
-            self.curr_display -= 1
-            if self.curr_display < 0:
-                self.curr_display = self.num_metrics-1
-            self.set_metric_index(index=self.curr_display)
+    @QtCore.pyqtSlot(int)
+    def set_normalize(self, checked: int):
+        self._normalize = self.normalize_checkbox.isChecked()
+        self.set_metrics_by_checkbox()
 
-    def set_metric_index(self, frame: int = -1, index: int = 0):
-        self.plot(frame, rows=[self._metrics.columns[index+1]])
+    @QtCore.pyqtSlot(int)
+    def set_subtract(self, checked: int):
+        self._subtract = self.subtract_checkbox.isChecked()
+        self.set_metrics_by_checkbox()
 
-    def plot(self, frame: int = -1, rows: List[str] = None):
-        ''' plot some random stuff '''
-        # random data
+    @QtCore.pyqtSlot(int)
+    def set_metrics_by_checkbox(self, i: int=None):
+        active_metrics = []
+        for metric_name in self._metric_checkboxes:
+            checkbox = self._metric_checkboxes[metric_name]
+            if checkbox.isChecked():
+                active_metrics.append(metric_name)
+        self.plot(rows=active_metrics, subtract=self._subtract, normalize=self._normalize)
+
+    def plot(self, frame: int = -1, rows: List[str]=None, subtract=False, show_orig=None, normalize=True) -> bool:
+        if show_orig is None:
+            show_orig = len(rows) == 1
         if rows is not None:
             self.rows = rows
         frames = self._metrics["Frame_number"].to_numpy()
-        cols = []
+        smoothed_data = []
+        raw_data = []
         title_rows = []
         for row in self.rows:
             title_rows.append(row)
             data = self._metrics[row].to_numpy()
-            cols.append(savgol_filter(data, 51, 3))
+            raw_datum = data
+            smoothed_datum = savgol_filter(data, 51, 3)
+            if normalize:
+                raw_datum = raw_datum / smoothed_datum.max()
+                smoothed_datum = smoothed_datum / smoothed_datum.max()
+            raw_data.append(raw_datum)
+            smoothed_data.append(smoothed_datum)
+
+        if subtract:
+            if len(title_rows) != 2:
+                self.ax = self._figure.add_subplot(111)
+                self.ax.clear()
+                self._canvas.draw()
+                return False
+            sub_smoothed = smoothed_data[1] - smoothed_data[0]
+            sub_raw = raw_data[1] - raw_data[0]
+            smoothed_data = [sub_smoothed]
+            raw_data = [sub_raw]
+            title_rows = [f"{title_rows[0]} - {title_rows[1]}"]
+
         title = ", ".join(title_rows) + " Metrics"
         self.setWindowTitle(title)
 
-        # create an axis
         self.ax = self._figure.add_subplot(111)
 
-        # discards the old graph
         self.ax.clear()
 
-        # plot data
-
-        for data in cols:
-            self.ax.plot(frames, data, '-', label="Smoothed Data")
-        # self.ax.plot(frames, data, "o", color="black", markersize=1, alpha=0.4, label="Original Data")
+        handles = []
+        for i in range(len(title_rows)):
+            raw = raw_data[i]
+            smoothed = smoothed_data[i]
+            color = self.colors[i%len(self.colors)]
+            handle = self.ax.plot(frames, smoothed, '-', color=color, label=title_rows[i])[0]
+            handles.append(handle)
+            if show_orig:
+                self.ax.plot(frames, raw, "--", color=color, markersize=1, alpha=0.4, label="Original Data")
+        if len(handles) > 0:
+            self.ax.legend(handles=handles)
 
         if frame > -1:
             self.ax.axvline(x=frame)
 
         # refresh canvas
         self._canvas.draw()
-
-    def set_plot(self, rows: List[str]):
-        self.rows = rows
+        return True
 
