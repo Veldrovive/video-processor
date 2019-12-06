@@ -100,13 +100,25 @@ class Canvas(FigureCanvas):
         super().mousePressEvent(event)
 
 
+class RenderCanvas(QtCore.QRunnable):
+    canvas: Canvas
+
+    def __init__(self, canvas: Canvas):
+        super(RenderCanvas, self).__init__()
+        self.canvas = canvas
+
+    def run(self):
+        self.canvas.draw()
+
+
 class MetricDisplayWindow(QtWidgets.QMainWindow):
     main_container: QtWidgets.QVBoxLayout
     metric_container: QtWidgets.QHBoxLayout
     normalize_checkbox: QtWidgets.QCheckBox
     subtract_checkbox: QtWidgets.QCheckBox
 
-    _subtract: bool = False
+    _thread_pool: QtCore.QThreadPool
+
     _normalize: bool = False
 
     _metrics: pd.DataFrame
@@ -116,6 +128,9 @@ class MetricDisplayWindow(QtWidgets.QMainWindow):
     _toolbar: NavigationToolbar
     _mouse_pos: Tuple[float, float] = (-1, -1)
     row: List[str] = ""
+
+    _raw_plot_lines: Dict[str, matplotlib.lines.Line2D]
+    _smoothed_plot_lines: Dict[str, matplotlib.lines.Line2D]
 
     curr_display: int = 0
     num_metrics: int = 0
@@ -135,11 +150,14 @@ class MetricDisplayWindow(QtWidgets.QMainWindow):
         self._canvas = Canvas(self._figure)
         self._toolbar = ToolBar(self._canvas, self)
 
+        self._thread_pool = QtCore.QThreadPool()
+
+        self.create_plot()
+
         self._toolbar.mouse_move_signal.connect(self.on_mouse_move)
         self._canvas.mouse_clicked_signal.connect(self.on_click)
 
         self.normalize_checkbox.stateChanged.connect(self.set_normalize)
-        self.subtract_checkbox.stateChanged.connect(self.set_subtract)
 
         layout = self.main_container
         layout.addWidget(self._canvas)
@@ -168,11 +186,7 @@ class MetricDisplayWindow(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot(int)
     def set_normalize(self, checked: int):
         self._normalize = self.normalize_checkbox.isChecked()
-        self.set_metrics_by_checkbox()
-
-    @QtCore.pyqtSlot(int)
-    def set_subtract(self, checked: int):
-        self._subtract = self.subtract_checkbox.isChecked()
+        self.create_plot(self._normalize)
         self.set_metrics_by_checkbox()
 
     @QtCore.pyqtSlot(int)
@@ -182,63 +196,51 @@ class MetricDisplayWindow(QtWidgets.QMainWindow):
             checkbox = self._metric_checkboxes[metric_name]
             if checkbox.isChecked():
                 active_metrics.append(metric_name)
-        self.plot(rows=active_metrics, subtract=self._subtract, normalize=self._normalize)
+        self.draw_plot(cols=active_metrics)
 
-    def plot(self, frame: int = -1, rows: List[str]=None, subtract=False, show_orig=None, normalize=True) -> bool:
-        if show_orig is None:
-            show_orig = len(rows) == 1
-        if rows is not None:
-            self.rows = rows
-        frames = self._metrics["Frame_number"].to_numpy()
-        smoothed_data = []
-        raw_data = []
-        title_rows = []
-        for row in self.rows:
-            title_rows.append(row)
-            data = self._metrics[row].to_numpy()
-            raw_datum = data
-            smoothed_datum = savgol_filter(data, 51, 3)
-            if normalize:
-                raw_datum = raw_datum / smoothed_datum.max()
-                smoothed_datum = smoothed_datum / smoothed_datum.max()
-            raw_data.append(raw_datum)
-            smoothed_data.append(smoothed_datum)
-
-        if subtract:
-            if len(title_rows) != 2:
-                self.ax = self._figure.add_subplot(111)
-                self.ax.clear()
-                self._canvas.draw()
-                return False
-            sub_smoothed = smoothed_data[1] - smoothed_data[0]
-            sub_raw = raw_data[1] - raw_data[0]
-            smoothed_data = [sub_smoothed]
-            raw_data = [sub_raw]
-            title_rows = [f"{title_rows[0]} - {title_rows[1]}"]
-
-        title = ", ".join(title_rows) + " Metrics"
-        self.setWindowTitle(title)
-
+    def create_plot(self, normalize=False):
         self.ax = self._figure.add_subplot(111)
-
         self.ax.clear()
+        self._raw_plot_lines = {}
+        self._smoothed_plot_lines = {}
+        frames = self._metrics["Frame_number"].to_numpy()
+        for i, column in enumerate(self._metrics.columns[1:]):
+            data = self._metrics[column].to_numpy()
+            smoothed = savgol_filter(data, 51, 3)
+            if normalize:
+                factor = smoothed.max()
+                data = data/factor
+                smoothed = smoothed/factor
+            color = self.colors[i % len(self.colors)]
+            self._smoothed_plot_lines[column] = self.ax.plot(frames, smoothed, 'None', color=color, label=column)[0]
+            self._raw_plot_lines[column] = self.ax.plot(frames, data, "None", color=color, markersize=1, alpha=0.4, label=column)[0]
+        self.ax.set_xlabel("Frame")
 
-        handles = []
-        for i in range(len(title_rows)):
-            raw = raw_data[i]
-            smoothed = smoothed_data[i]
-            color = self.colors[i%len(self.colors)]
-            handle = self.ax.plot(frames, smoothed, '-', color=color, label=title_rows[i])[0]
-            handles.append(handle)
+    def draw_plot(self, cols: List[str]=None, show_orig: bool = None):
+        if show_orig is None:
+            show_orig = len(cols) == 1
+        for col in self._raw_plot_lines:
+            self._raw_plot_lines[col].set_linestyle("None")
+            self._smoothed_plot_lines[col].set_linestyle("None")
+        max_val = None
+        min_val = None
+        for col in cols:
+            line = self._smoothed_plot_lines[col]
+            line.set_linestyle("-")
+            orig_data = line.get_ydata()
+            line_max = orig_data.max()
+            line_min = orig_data.min()
+            if max_val is None or line_max > max_val:
+                max_val = line_max
+            if min_val is None or line_min < min_val:
+                min_val = line_min
             if show_orig:
-                self.ax.plot(frames, raw, "--", color=color, markersize=1, alpha=0.4, label="Original Data")
-        if len(handles) > 0:
-            self.ax.legend(handles=handles)
+                self._raw_plot_lines[col].set_linestyle("--")
+        if min_val is not None:
+            padding = max(min_val, max_val)*0.03
+            self.ax.set_ylim(min_val-padding, max_val+padding)
+        self.ax.legend(handles=[self._smoothed_plot_lines[col] for col in cols])
+        self.render_plot()
 
-        if frame > -1:
-            self.ax.axvline(x=frame)
-
-        # refresh canvas
-        self._canvas.draw()
-        return True
-
+    def render_plot(self):
+        self._thread_pool.start(RenderCanvas(self._canvas))

@@ -201,7 +201,7 @@ class ImageMarker:
     _scale_factor: float = 1
 
     _landmarks: Optional[Landmarks] = None
-    _show: Dict[str, bool] = {"land": True, "bound": True, "metrics": True}
+    _show: Dict[str, bool] = {"land": True, "bound": False, "metrics": True}
     _selected: Set[int] = set()
     _excluded: Set[int] = set()
     _color_overrides: Dict[int, Tuple[int, int, int]] = {}

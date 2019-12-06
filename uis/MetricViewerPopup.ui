@@ -40,13 +40,6 @@
        </widget>
       </item>
       <item>
-       <widget class="QCheckBox" name="subtract_checkbox">
-        <property name="text">
-         <string>Subtract</string>
-        </property>
-       </widget>
-      </item>
-      <item>
        <spacer name="horizontalSpacer">
         <property name="orientation">
          <enum>Qt::Horizontal</enum>
@@ -64,7 +57,7 @@
     <item>
      <widget class="QScrollArea" name="scrollArea">
       <property name="sizePolicy">
-       <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+       <sizepolicy hsizetype="Expanding" vsizetype="Minimum">
         <horstretch>0</horstretch>
         <verstretch>0</verstretch>
        </sizepolicy>
