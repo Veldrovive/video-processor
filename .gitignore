@@ -63,3 +63,8 @@ venv.bak/
 # Project Specific
 movement_analysis
 test_imgs
+
+.ipynb_checkpoints/
+landmark_detection/models/*
+!landmark_detection/models
+

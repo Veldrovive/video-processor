@@ -76,7 +76,13 @@ class FrameBuffer(QtCore.QThread):
         if reader is None:
             return False
         self._reader = reader
-        self._max_frame = int(self._reader.get(7)) - 1
+        self._max_frame = -2
+        self._reader.set(0, 0)
+        ret = True
+        while ret:
+            ret, frame = self._reader.read()
+            self._max_frame += 1
+        self._reader.set(0, 0)
         self._scale_factor = scale_factor
         return True
 
@@ -170,8 +176,8 @@ class FrameBuffer(QtCore.QThread):
                 self.new_frame_signal.emit((index, frame, marked_up))
                 updated_current = True
             self.read_frames(self._curr_frame-self._buffer_radius, self._buffer_length)
-            if not updated_current:
-                self.new_frame_signal.emit(self._buffer[self._buffer_radius])
+            # if not updated_current:
+            #     self.new_frame_signal.emit(self._buffer[self._buffer_radius])
             self._force_update = False
 
         if self._target_frame == self._curr_frame:
@@ -313,7 +319,12 @@ class ImageViewer(QtWidgets.QGraphicsView):
     def set_reader(self, reader: cv2.VideoCapture) -> bool:
         if self.reader_is_good(reader):
             self._reader = reader
-            self._video_length = int(self._reader.get(7))
+            self._video_length = -1
+            ret = True
+            while ret:
+                ret, frame = self._reader.read()
+                self._video_length += 1
+            self._reader.set(0, 0)
             self._video_fps = int(self._reader.get(5))
             self._resolution = (int(self._reader.get(3)), int(self._reader.get(4)))
             self._scale_factor = max(self._min_dim / max(self._resolution), 1)

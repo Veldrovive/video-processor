@@ -4,3 +4,6 @@ PyQt5
 scipy
 opencv-python
 matplotlib
+torch
+scikit-image
+tqdm

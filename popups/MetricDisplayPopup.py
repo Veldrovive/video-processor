@@ -9,6 +9,9 @@ from scipy.signal import savgol_filter
 
 from typing import Optional, List, Tuple, Dict
 
+#TODO: Look into https://github.com/jchanvfx/NodeGraphQt for higher level
+# user interaction
+
 class ToolBar(NavigationToolbar):
     selecting_frame: bool = False
 
@@ -208,9 +211,10 @@ class MetricDisplayWindow(QtWidgets.QMainWindow):
             data = self._metrics[column].to_numpy()
             smoothed = savgol_filter(data, 51, 3)
             if normalize:
+                shift = smoothed.min()
                 factor = smoothed.max()
-                data = data/factor
-                smoothed = smoothed/factor
+                data = (data-shift)/factor
+                smoothed = (smoothed-shift)/factor
             color = self.colors[i % len(self.colors)]
             self._smoothed_plot_lines[column] = self.ax.plot(frames, smoothed, 'None', color=color, label=column)[0]
             self._raw_plot_lines[column] = self.ax.plot(frames, data, "None", color=color, markersize=1, alpha=0.4, label=column)[0]
@@ -218,7 +222,7 @@ class MetricDisplayWindow(QtWidgets.QMainWindow):
 
     def draw_plot(self, cols: List[str]=None, show_orig: bool = None):
         if show_orig is None:
-            show_orig = len(cols) == 1
+            show_orig = False  # len(cols) == 1
         for col in self._raw_plot_lines:
             self._raw_plot_lines[col].set_linestyle("None")
             self._smoothed_plot_lines[col].set_linestyle("None")

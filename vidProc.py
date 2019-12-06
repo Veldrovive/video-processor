@@ -2,7 +2,7 @@ import os
 import sys
 import cv2
 import pandas as pd
-from typing import Tuple
+from typing import Tuple, Optional, Union
 
 import vidViewer
 import utils
@@ -217,25 +217,36 @@ class MainWindow(QtWidgets.QMainWindow):
             self._file_path = filename
             landmark_file = filename[:-3] + 'csv'
             self.viewer.reset()
-            self.open_video_file(filename)
+            cap = self.open_video_file(filename)
             if os.path.exists(landmark_file):
                 self.open_landmark_file(landmark_file)
+            else:
+                self.detect_landmarks_window = DetectLandmarksWindow(cap, filename, self)
+                self.detect_landmarks_window.show()
+                self.detect_landmarks_window.got_landmarks_signal.connect(self.on_landmarks_detected)
 
-    def open_video_file(self, file: str) -> bool:
+    def on_landmarks_detected(self, name: str, landmarks: pd.DataFrame):
+        landmarks.to_csv(self._file_path[:-3] + "csv")
+        self.open_landmark_file(landmarks)
+
+    def open_video_file(self, file: str) -> Optional[cv2.VideoCapture]:
         try:
             vid_cap = cv2.VideoCapture(file)
         except cv2.error as e:
-            return False
+            return None
         self.viewer.set_reader(vid_cap)
-        return True
+        return vid_cap
 
-    def open_landmark_file(self, file: str) -> bool:
-        try:
-            landmarks = pd.read_csv(file)
-        except Exception as e:
-            # TODO: make this exception handling more specific
-            print(e)
-            return False
+    def open_landmark_file(self, file: Union[str, pd.DataFrame]) -> bool:
+        if isinstance(file, str):
+            try:
+                landmarks = pd.read_csv(file)
+            except Exception as e:
+                # TODO: make this exception handling more specific
+                print(e)
+                return False
+        else:
+            landmarks = file
         self.viewer.set_landmarks(landmarks)
         return True
 
