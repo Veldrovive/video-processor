@@ -213,7 +213,7 @@ class MetricDisplayWindow(QtWidgets.QMainWindow):
             smoothed = savgol_filter(data, min(len(data), 51), 3)
             if normalize:
                 shift = smoothed.min()
-                factor = smoothed.max()
+                factor = smoothed.max()-shift
                 data = (data-shift)/factor
                 smoothed = (smoothed-shift)/factor
             color = self.colors[i % len(self.colors)]

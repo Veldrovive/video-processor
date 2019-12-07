@@ -25,7 +25,7 @@ class MetricType(Enum):
     AREA = 2
 
 class BoundingBox:
-    locations: Dict[int, Tuple[Tuple[int, int], Tuple[int, int]]]
+    locations: Dict[int, Tuple[Tuple[int, int], Tuple[int, int]]] = None
 
     def __init__(self, landmarks: pd.DataFrame):
         self.locations = {}
@@ -79,8 +79,11 @@ class Landmark:
 class Landmarks:
     _landmarks_frame: pd.DataFrame = None
     _landmarks: List[Optional[Landmark]] = []
-    _bounding_boxes: List[BoundingBox]
+    _bounding_boxes: List[Optional[BoundingBox]]
     _n_landmarks: int = 0
+
+    _has_bbox: bool = False
+    _has_landmarks = False
 
     def __init__(self, landmarks: pd.DataFrame, n_landmarks: int = 68):
         self._landmarks_frame = landmarks
@@ -88,6 +91,12 @@ class Landmarks:
         self._landmarks = []
         self.populate_landmarks()
         self.populate_bounding_boxes()
+
+    def has_bbox(self):
+        return self._has_bbox
+
+    def has_landmarks(self):
+        return self._has_landmarks
 
     def populate_landmarks(self) -> bool:
         for i in range(self._n_landmarks):
@@ -102,13 +111,22 @@ class Landmarks:
             except KeyError:
                 landmark = None
             self._landmarks.append(landmark)
+        self._has_landmarks = len([l for l in self._landmarks if l is None]) == 0
         return True
 
     def populate_bounding_boxes(self) -> bool:
-        self._bounding_boxes = [BoundingBox(self._landmarks_frame)]
+        bbox = BoundingBox(self._landmarks_frame)
+        if bbox.locations is not None:
+            self._bounding_boxes = [bbox]
+            self._has_bbox = True
+        else:
+            self._bounding_boxes = [None]
+            self._has_bbox = False
         return True
 
     def get_bound_box_locs(self, frame: int) -> List[Tuple[Tuple[float, float], Tuple[float, float]]]:
+        if not self._has_bbox:
+            return []
         box_locs = []
         for bounding_box in self._bounding_boxes:
             loc = bounding_box.get_location(frame)
@@ -131,16 +149,20 @@ class Landmarks:
             return False
 
     def get_landmark_locations(self, frame: int, landmarks: Optional[Union[int, List[int]]]=None, exlude_none=True) -> List[Optional[Tuple[float, float]]]:
+        if not self._has_landmarks:
+            return []
         if isinstance(landmarks, int):
             landmarks = [landmarks]
         if landmarks is None:
             landmarks = range(self._n_landmarks)
-        locs = [self._landmarks[i].get_location(frame) for i in landmarks]
+        locs = [self._landmarks[i].get_location(frame) for i in landmarks if self._landmarks[i] is not None]
         if exlude_none:
             locs = [loc for loc in locs if loc is not None]
         return locs
 
     def get_landmarks(self, frame: int, landmarks: Optional[Union[int, List[int]]]=None) -> List[Optional[Tuple[Tuple[float, float], str, int]]]:
+        if not self._has_landmarks:
+            return []
         if isinstance(landmarks, int):
             landmarks = [landmarks]
         if landmarks is None:
@@ -157,10 +179,14 @@ class Landmarks:
         return res
 
     def get_centroid(self, frame: int, landmarks: List[int]) -> Tuple[float, float]:
+        if not self._has_landmarks:
+            return (-1, -1)
         locations = [location for location in self.get_landmark_locations(frame, landmarks) if location is not None]
         return tuple(np.sum(locations, axis=0)/len(locations))
 
     def get_nearest_point(self, frame: int, pos: Tuple[float, float], threshold: int=6) -> Optional[int]:
+        if not self._has_landmarks:
+            return None
         locations = self.get_landmark_locations(frame)
         distance = cdist(np.array(locations), np.array([pos]))[:, 0]
         min_index = np.argmin(distance)
@@ -171,6 +197,8 @@ class Landmarks:
             return None
 
     def get_point_area(self, frame: int, x_max: float, x_min: float, y_max: float, y_min: float) -> List[int]:
+        if not self._has_landmarks:
+            return []
         locations = self.get_landmark_locations(frame)
         selected_landmarks = []
         for index, location in enumerate(locations):
@@ -189,6 +217,8 @@ class Landmarks:
     def get_dataframe(self) -> pd.DataFrame:
         landmark_frame = self._landmarks_frame.copy()
         for landmark in self._landmarks:
+            if landmark is None:
+                continue
             columns = landmark.get_columns()
             for column in columns:
                 landmark_frame[column] = columns[column]
@@ -318,7 +348,7 @@ class ImageMarker:
         img = img.copy()
         h, w, _ = img.shape
         circle_rad = int(round(max(h, w) / 450))
-        if self._show["bound"]:
+        if self._show["bound"] and self._landmarks.has_bbox():
             for bound_box_points in self._landmarks.get_bound_box_locs(frame_num):
                 try:
                     lt_point, rb_point = [self._cast_pos(pos, self._scale_factor) for pos in bound_box_points]
@@ -326,7 +356,7 @@ class ImageMarker:
                 except TypeError:
                     pass
 
-        if self._show["metrics"]:
+        if self._show["metrics"] and self._landmarks.has_landmarks():
             for metric in self._metrics+self._working_metrics:
                 if len(metric.landmarks) < 1:
                     continue
@@ -341,7 +371,7 @@ class ImageMarker:
                     curr_point = self._cast_pos(self._get_point(frame_num, metric.landmarks[0])[0], self._scale_factor)
                     cv2.line(img, last_point, curr_point, self._config.group.highlight_color, 1)
 
-        if self._show["land"]:
+        if self._show["land"] and self._landmarks.has_landmarks():
             for landmark in self._landmarks.get_landmarks(frame_num):
                 loc, group, index = landmark
                 if index in self._excluded:

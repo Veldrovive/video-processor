@@ -76,6 +76,8 @@ class MetricWindow(QtWidgets.QMainWindow):
     _save_path: str = None
     _final_metrics: pd.DataFrame = None
 
+    metric_calc: MetricCalc
+
     metric_done_signal = QtCore.pyqtSignal(object) # Emitted when metrics are done calculating
 
     def __init__(self, parent=None, metrics=None, landmarks: utils.Landmarks=None):
@@ -104,12 +106,14 @@ class MetricWindow(QtWidgets.QMainWindow):
                     pass
         if len(running_metrics) < 1:
             return False
+        if not self._landmarks.has_landmarks():
+            return False
         # TODO: Make this a ThreadPool instead of a single thread
-        metric_calc = MetricCalc(running_metrics, self._landmarks)
-        metric_calc.started.connect(self.on_metrics_start)
-        metric_calc.frame_done_signal.connect(self.on_frame_done)
-        metric_calc.metrics_complete_signal.connect(self.on_metrics_done)
-        metric_calc.start()
+        self.metric_calc = MetricCalc(running_metrics, self._landmarks)
+        self.metric_calc.started.connect(self.on_metrics_start)
+        self.metric_calc.frame_done_signal.connect(self.on_frame_done)
+        self.metric_calc.metrics_complete_signal.connect(self.on_metrics_done)
+        self.metric_calc.start()
         return True
 
     def on_metrics_start(self):

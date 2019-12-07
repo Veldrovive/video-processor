@@ -123,16 +123,11 @@ class MainWindow(QtWidgets.QMainWindow):
         # Landmarks Menu
         landmarks_menu = self.menuBar.addMenu("&Landmarks")
 
-        process_current_frame = landmarks_menu.addAction("Process Current Frame")
-        process_current_frame.setShortcut("Ctrl+C")
-        process_current_frame.setStatusTip('Determine facial landmarks for current frame')
-        # process_current_frame.triggered.connect(self.load_file)
-
         process_some_frame = landmarks_menu.addAction("Process Frames")
         process_some_frame.setShortcut("Ctrl+A")
         process_some_frame.setStatusTip(
             'Determine facial landmarks for some frames in the video')
-        # process_some_frame.triggered.connect(self.process_frames)
+        process_some_frame.triggered.connect(self.process_frames)
 
         # Top toolbar population
         toggle_landmark = QtWidgets.QAction('Show/Hide facial landmarks', self)
@@ -217,14 +212,15 @@ class MainWindow(QtWidgets.QMainWindow):
             self._file_path = filename
             landmark_file = filename[:-3] + 'csv'
             self.viewer.reset()
-            cap = self.open_video_file(filename)
+            self.cap = self.open_video_file(filename)
+            self.filename = filename
             if os.path.exists(landmark_file):
                 self.open_landmark_file(landmark_file)
             else:
                 self.open_landmark_file(pd.DataFrame())
-                self.detect_landmarks_window = DetectLandmarksWindow(cap, filename, self)
-                self.detect_landmarks_window.show()
-                self.detect_landmarks_window.got_landmarks_signal.connect(self.on_landmarks_detected)
+                # self.detect_landmarks_window = DetectLandmarksWindow(cap, filename, self)
+                # self.detect_landmarks_window.show()
+                # self.detect_landmarks_window.got_landmarks_signal.connect(self.on_landmarks_detected)
 
     def on_landmarks_detected(self, name: str, landmarks: pd.DataFrame):
         landmarks.to_csv(self._file_path[:-3] + "csv")
@@ -252,7 +248,7 @@ class MainWindow(QtWidgets.QMainWindow):
         return True
 
     def process_frames(self):
-        self.detect_landmarks_window = DetectLandmarksWindow(self)
+        self.detect_landmarks_window = DetectLandmarksWindow(self.cap, self.filename, self)
         self.detect_landmarks_window.show()
 
     def open_config(self):

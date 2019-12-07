@@ -11,7 +11,6 @@ from landmark_detection.Detector import LandmarkDetector
 
 class DetectLandmarksWindow(QtWidgets.QMainWindow):
     go_button: QtWidgets.QPushButton
-    this_frame_radio: QtWidgets.QRadioButton
     all_frames_radio: QtWidgets.QRadioButton
     some_frames_radio: QtWidgets.QRadioButton
     some_frames_input: QtWidgets.QLineEdit
@@ -40,11 +39,6 @@ class DetectLandmarksWindow(QtWidgets.QMainWindow):
 
         self._video = video
         self._save_path = save_path
-        self._detector = LandmarkDetector(num_frames=1)
-        self._detector.frame_done_signal.connect(self.on_new_frame)
-        self._detector.landmarks_complete_signal.connect(self.on_finished)
-        self._detector.new_video_started_signal.connect(self.on_start)
-        self._detector.start()
         self.move(0, 0)
         self.go_button.clicked.connect(self.run_detection)
 
@@ -67,9 +61,12 @@ class DetectLandmarksWindow(QtWidgets.QMainWindow):
         return frames
 
     def run_detection(self):
-        if self.this_frame_radio.isChecked():
-            print("Running detect for this frame")
-        elif self.all_frames_radio.isChecked():
+        self._detector = LandmarkDetector(num_frames=1)
+        self._detector.frame_done_signal.connect(self.on_new_frame)
+        self._detector.landmarks_complete_signal.connect(self.on_finished)
+        self._detector.new_video_started_signal.connect(self.on_start)
+        self._detector.start()
+        if self.all_frames_radio.isChecked():
             print("Running detect for all frames")
             self._detector.add_video(self._save_path, self._video)
         elif self.some_frames_radio.isChecked():
