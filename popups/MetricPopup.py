@@ -44,16 +44,16 @@ class MetricCalc(QtCore.QThread):
         return sum([np.linalg.norm(np.array(positions[i])-np.array(positions[i+1])) for i in range(len(positions)-1)])
 
     def run(self):
-        num_frames = self._landmarks.get_num_frames()
+        frames = self._landmarks.get_frames()
         metrics_df = pd.DataFrame(None, columns=["Frame_number"].extend([metric.name for metric in self._metrics]))
-        metrics_df["Frame_number"] = list(range(num_frames))
-        total = num_frames*len(self._metrics)
+        metrics_df["Frame_number"] = frames
+        total = len(frames)*len(self._metrics)
         done_count = 0
         self.frame_done_signal.emit(done_count, done_count / total)
         for metric in self._metrics:
             metric_type, landmarks, name = metric.type, metric.landmarks, metric.name
             measures = []
-            for frame in range(num_frames):
+            for frame in frames:
                 if metric_type == utils.MetricType.LENGTH:
                     measures.append(self.calc_distance(frame, landmarks))
                 if metric_type == utils.MetricType.AREA:

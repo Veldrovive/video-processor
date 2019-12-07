@@ -221,6 +221,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if os.path.exists(landmark_file):
                 self.open_landmark_file(landmark_file)
             else:
+                self.open_landmark_file(pd.DataFrame())
                 self.detect_landmarks_window = DetectLandmarksWindow(cap, filename, self)
                 self.detect_landmarks_window.show()
                 self.detect_landmarks_window.got_landmarks_signal.connect(self.on_landmarks_detected)

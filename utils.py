@@ -25,12 +25,16 @@ class MetricType(Enum):
     AREA = 2
 
 class BoundingBox:
-    locations: Dict[int, Tuple[Tuple[int, int], Tuple[int, int]]] = {}
+    locations: Dict[int, Tuple[Tuple[int, int], Tuple[int, int]]]
 
     def __init__(self, landmarks: pd.DataFrame):
-        locations = landmarks[[
-            "Frame_number", "bbox_top_x","bbox_top_y", "bbox_bottom_x", "bbox_bottom_y"
-        ]].values
+        self.locations = {}
+        try:
+            locations = landmarks[[
+                "Frame_number", "bbox_top_x","bbox_top_y", "bbox_bottom_x", "bbox_bottom_y"
+            ]].values
+        except KeyError:
+            return
         for frame in locations:
             self.locations[int(frame[0])] = (
                 (frame[1], frame[2]),
@@ -116,7 +120,7 @@ class Landmarks:
         for landmark in landmarks:
             try:
                 self._landmarks[landmark].group = group
-            except IndexError:
+            except (IndexError, AttributeError):
                 pass
         return True
 
@@ -176,11 +180,11 @@ class Landmarks:
                 selected_landmarks.append(index)
         return selected_landmarks
 
-    def get_num_frames(self) -> int:
+    def get_frames(self) -> List[int]:
         try:
-            return self._landmarks_frame.shape[0]
+            return self._landmarks_frame["Frame_number"].to_list()
         except AttributeError:
-            return 0
+            return []
 
     def get_dataframe(self) -> pd.DataFrame:
         landmark_frame = self._landmarks_frame.copy()

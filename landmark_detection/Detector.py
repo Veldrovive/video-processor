@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 import pandas as pd
 from queue import Queue
+import math
 
 from landmark_detection.face_alignment.utils import *
 from landmark_detection.face_alignment import api as face_alignment
@@ -12,7 +13,7 @@ from landmark_detection.face_alignment.detection.sfd import sfd_detector
 from landmark_detection.face_alignment.detection.sfd.sfd_detector import s3fd
 from landmark_detection.face_alignment.detection.sfd.bbox import *
 
-from typing import Union, Tuple, List
+from typing import Union, Tuple, List, Iterable, Optional
 
 class LandmarkDetector(QtCore.QThread):
     _face_alignment_model_path: str = "./landmark_detection/models/2DFAN4-11f355bf06.pth.tar"
@@ -22,6 +23,7 @@ class LandmarkDetector(QtCore.QThread):
     _network_size: int
     _det_thresh: float
     _num_parallel_frames: int
+    _frames: Optional[Iterable[int]]
 
     _video_queue: Queue
     _video_handler: cv2.VideoCapture
@@ -36,8 +38,9 @@ class LandmarkDetector(QtCore.QThread):
 
     _running: bool = True
 
-    def __init__(self, network_size: int=4, det_thresh: float=0.3, FAN_model_path: str=None, detector_model_path: str=None, num_frames: int=1):
+    def __init__(self, frames: Optional[Iterable[int]]=None, network_size: int=4, det_thresh: float=0.3, FAN_model_path: str=None, detector_model_path: str=None, num_frames: int=1):
         super(LandmarkDetector, self).__init__()
+        self._frames = frames
         self._video_queue = Queue()
         self._network_size = network_size
         self._det_thresh = det_thresh
@@ -61,6 +64,9 @@ class LandmarkDetector(QtCore.QThread):
         self._face_detector_net.to(self._device)
         self._face_detector_net.eval()
         self._face_detector_net.reference_scale = 195
+
+    def set_frames(self, frames: Iterable[int]):
+        self._frames = frames
 
     def add_video(self, video_name: str, handler: cv2.VideoCapture) -> bool:
         self._video_queue.put((video_name, handler))
@@ -214,8 +220,7 @@ class LandmarkDetector(QtCore.QThread):
                         preds[i, j] + 0.5, center, scale, hm.size(2), True)
         return preds, preds_orig
 
-    def find_landmarks(self, video_handler: cv2.VideoCapture, number_of_frames=10) -> pd.DataFrame:
-        # TODO: Allow user to specify which frames to run detection on
+    def find_landmarks(self, video_handler: cv2.VideoCapture, frames: Optional[Iterable[int]]=None, number_of_frames=10) -> pd.DataFrame:
         # define the DataFrame that will be used to store the landmark and boundingbox data
         df_cols = ["bbox_top_x", "bbox_top_y", "bbox_bottom_x", "bbox_bottom_y"]
         for i in range(0, 68):
@@ -224,86 +229,75 @@ class LandmarkDetector(QtCore.QThread):
             yy = 'landmark_' + num + '_y'
             df_cols.append(xx)
             df_cols.append(yy)
-        LandmarkDataFrame = pd.DataFrame(columns=df_cols)
+        landmark_data_frame = pd.DataFrame(columns=df_cols)
 
         # get some information from video
         video_width = int(video_handler.get(cv2.CAP_PROP_FRAME_WIDTH))
         video_height = int(video_handler.get(cv2.CAP_PROP_FRAME_HEIGHT))
         video_channels = 3
 
-        # video_length = int(video_handler.get(cv2.CAP_PROP_FRAME_COUNT))
         video_length = -1
         ret = True
         while ret:
             ret, frame = video_handler.read()
             video_length += 1
         video_handler.set(0, 0)
+        if frames is None:
+            frames = range(video_length)
+        frame_list = [frame for frame in frames if 0 <= frame < video_length]
+        frame_list.sort()
+        print("Evaluating for frames:", frame_list)
 
         if number_of_frames > video_length:
             number_of_frames = video_length
 
-        # create the sequence of frames that will be read from file, this takes
-        # into account that the last tensor might have less frames
-        sequence = [number_of_frames] * (video_length // number_of_frames)
-        if video_length % number_of_frames > 0:
-            sequence.append(video_length % number_of_frames)
-
         # scale factor for face localization, 4 seems to work just fine
         scale_factor = 4
-        count = 0
-        total_count = video_length // number_of_frames
-        for k in sequence:
-            self.frame_done_signal.emit(count*number_of_frames, count/total_count)
-            # st = time.time()
-            data = []  # dict of dicts containing information for all frames
 
-            # here we will stack a bunch of frames to proceess them in parallel
-            framesstack = np.zeros(
-                (k, video_height, video_width, video_channels))
-            failed = False
-            for f in range(k):
-                success, frame = video_handler.read()
-                if success:
-                    # the first frame of the stack will be used to localize the face, the same face position will be used to all the stack
-                    if f == 0:
-                        frame_for_boundingbox = cv2.resize(frame, (
-                        video_width // scale_factor,
-                        video_height // scale_factor),
+        frame_for_boundingbox = None
+        for i in range(math.ceil(video_length/number_of_frames)):
+            self.frame_done_signal.emit(i*number_of_frames, (i*number_of_frames)/len(frame_list))
+            # Get a list of frame numbers of length number_of_frames
+            sequence = frame_list[i*number_of_frames:(i+1)*number_of_frames]
+            print("Evaluating Sequence:", sequence)
+            if len(sequence) == 0:
+                break
+            frame_stack = np.zeros((len(sequence), video_height, video_width, video_channels))
+            for index, frame_num in enumerate(sequence):
+                while video_handler.get(0) < frame_num:
+                    video_handler.read()
+                ret, frame = video_handler.read()
+                if ret:
+                    if frame_num == sequence[0]:
+                        frame_for_boundingbox = cv2.resize(frame,
+                                                           (video_width // scale_factor, video_height // scale_factor),
                                                            interpolation=cv2.INTER_AREA)
-                        frame_for_boundingbox = frame_for_boundingbox - np.array(
-                            [104, 117,
-                             123])  # normalization required by the network
-                        frame_for_boundingbox = frame_for_boundingbox.transpose(
-                            2, 0, 1)
-                        frame_for_boundingbox = frame_for_boundingbox.reshape(
-                            (1,) + frame_for_boundingbox.shape)
-
-                    framesstack[f, :, :, :] = frame
+                        frame_for_boundingbox = frame_for_boundingbox - np.array([104, 117, 123])  # normalization required by the network
+                        frame_for_boundingbox = frame_for_boundingbox.transpose(2, 0, 1)
+                        frame_for_boundingbox = frame_for_boundingbox.reshape((1,) + frame_for_boundingbox.shape)
+                    frame_stack[index, :, :, :] = frame
                 else:
-                    print('skipped frame')
-                    failed = True
-
-                    # Detect faces in the first frame of the stack
-            bboxlist = self.detect_bbox(self._face_detector_net, torch.from_numpy(
-                frame_for_boundingbox).float().to(self._device))
+                    print(f"Skipped Frame: {frame}")
+            if frame_for_boundingbox is None:
+                continue
+            bboxlist = self.detect_bbox(self._face_detector_net, torch.from_numpy(frame_for_boundingbox).float().to(self._device))
             keep = self.nms(bboxlist)
             bboxlist = bboxlist[keep, :]
             bboxlist = [x for x in bboxlist if x[-1] > 0.5]
 
-            # find center of face and a 'scale' factor
-            for i, d in enumerate(bboxlist):
+            center, scale, d = None, None, None
+            for j, d in enumerate(bboxlist):
                 d[0:4] = d[0:4] * scale_factor
-                center = torch.FloatTensor(
-                    [d[2] - (d[2] - d[0]) / 2.0, d[3] - (d[3] - d[1]) / 2.0])
+                center = torch.FloatTensor([d[2] - (d[2] - d[0]) / 2.0, d[3] - (d[3] - d[1]) / 2.0])
                 center[1] = center[1] - (d[3] - d[1]) * 0.12
-                scale = (d[2] - d[0] + d[3] - d[
-                    1]) / self._face_detector_net.reference_scale
+                scale = (d[2] - d[0] + d[3] - d[1]) / self._face_detector_net.reference_scale
 
             # crop images so that face in centered and image dimensions as 256x256
+            if center is None or scale is None or d is None:
+                continue
             cropped_images = []
-            for i in range(k):
-                cropped_images.append(torch.tensor(
-                    crop(framesstack[i, :, :, :], center.numpy(), scale)))
+            for j in range(len(sequence)):
+                cropped_images.append(torch.tensor(crop(frame_stack[j, :, :, :], center.numpy(), scale)))\
 
             img_cropped = torch.stack(cropped_images, 0)
             # permute color axis because
@@ -317,11 +311,12 @@ class LandmarkDetector(QtCore.QThread):
             output = self._face_alignment_net(img_cropped)[-1]
 
             # retreive landmark positions from heatmaps
+            # TODO: Figure out if this should be the new get_preds function
             pts, pts_img = get_preds_fromhm(output, center, scale)
 
             # save everything in a DataFrame
-            for f in range(k):
-                datum = []  # dict containing information for one frame
+            for f in range(len(sequence)):
+                datum = list()  # dict containing information for one frame
 
                 datum.append(d[0])
                 datum.append(d[1])
@@ -329,18 +324,14 @@ class LandmarkDetector(QtCore.QThread):
                 datum.append(d[3])
 
                 for x, y in pts_img[f, :, :].numpy():
-                    datum.append(x), datum.append(
-                        y)  # x and y position of each landmark
+                    datum.append(x), datum.append(y)  # x and y position of each landmark
 
-                LandmarkDataFrame = LandmarkDataFrame.append(
+                landmark_data_frame = landmark_data_frame.append(
                     pd.Series(datum, index=df_cols),
                     ignore_index=True)
-            count += 1
 
-        LandmarkDataFrame.insert(loc=0, column='Frame_number',
-                                 value=range(video_length))
-
-        return LandmarkDataFrame
+        landmark_data_frame.insert(loc=0, column='Frame_number', value=frame_list)
+        return landmark_data_frame
 
     def stop(self) -> bool:
         self._running = False
@@ -351,6 +342,6 @@ class LandmarkDetector(QtCore.QThread):
             if not self._video_queue.empty():
                 name, handler = self._video_queue.get()
                 self.new_video_started_signal.emit(name)
-                landmarks = self.find_landmarks(handler, self._num_parallel_frames)
+                landmarks = self.find_landmarks(handler, frames=self._frames, number_of_frames=self._num_parallel_frames)
                 self.landmarks_complete_signal.emit(name, landmarks)
 

@@ -4,6 +4,8 @@ import pandas as pd
 import utils
 import time
 
+from typing import List, Set
+
 from landmark_detection.Detector import LandmarkDetector
 
 
@@ -17,6 +19,7 @@ class DetectLandmarksWindow(QtWidgets.QMainWindow):
     time_estimate: QtWidgets.QLabel
 
     _start_time: float
+    _times: List[float]
 
     _video: cv2.VideoCapture
     _save_path: str
@@ -33,6 +36,8 @@ class DetectLandmarksWindow(QtWidgets.QMainWindow):
         self.progress.hide()
         self.time_estimate.hide()
 
+        self._times = []
+
         self._video = video
         self._save_path = save_path
         self._detector = LandmarkDetector(num_frames=1)
@@ -43,6 +48,24 @@ class DetectLandmarksWindow(QtWidgets.QMainWindow):
         self.move(0, 0)
         self.go_button.clicked.connect(self.run_detection)
 
+    @staticmethod
+    def frame_desc_to_list(desc: str) -> Set[int]:
+        frames = set()
+        sections = [sec.strip() for sec in desc.split(",")]
+        for section in sections:
+            parts = [part.strip() for part in section.split("-")]
+            if len(parts) == 1:
+                try:
+                    frames.add(int(parts[0])-1)
+                except ValueError:
+                    continue
+            elif len(parts) > 1:
+                try:
+                    frames.update(range(int(parts[0])-1, int(parts[-1])))
+                except ValueError:
+                    continue
+        return frames
+
     def run_detection(self):
         if self.this_frame_radio.isChecked():
             print("Running detect for this frame")
@@ -50,7 +73,10 @@ class DetectLandmarksWindow(QtWidgets.QMainWindow):
             print("Running detect for all frames")
             self._detector.add_video(self._save_path, self._video)
         elif self.some_frames_radio.isChecked():
-            frames = self.some_frames_input.text()
+            frame_desc = self.some_frames_input.text()
+            frames = self.frame_desc_to_list(frame_desc)
+            self._detector.set_frames(frames)
+            self._detector.add_video(self._save_path, self._video)
             print("Running detect for frames:", frames)
 
     @QtCore.pyqtSlot(str)
@@ -60,6 +86,7 @@ class DetectLandmarksWindow(QtWidgets.QMainWindow):
         self.progress.setRange(0, 1000)
         self.progress.show()
         self.time_estimate.show()
+        self._times.append(time.time())
 
     @QtCore.pyqtSlot(str, pd.DataFrame)
     def on_finished(self, name: str, landmarks: pd.DataFrame):
@@ -71,11 +98,13 @@ class DetectLandmarksWindow(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot(int, float)
     def on_new_frame(self, frame: int, percent: float):
         print(f"{frame} frames detected at {round(percent * 100, 2)}% done")
-        total_time = time.time()-self._start_time
+        self._times.append(time.time())
         if percent == 0:
             self.time_estimate.setText(f"Estimated Time Left: Infinite")
         else:
-            time_left = total_time*((1-percent)/percent)
+            frame_delta = min(30, len(self._times))
+            time_diff = self._times[-1]-self._times[-1*frame_delta]
+            time_left = frame*((1/percent)-1)*(time_diff/frame_delta)
             minutes, seconds = divmod(time_left, 60)
             hours, minutes = divmod(minutes, 60)
             periods = [('h', int(hours)), ('m', int(minutes)), ('s', int(seconds))]

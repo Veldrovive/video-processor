@@ -208,8 +208,9 @@ class MetricDisplayWindow(QtWidgets.QMainWindow):
         self._smoothed_plot_lines = {}
         frames = self._metrics["Frame_number"].to_numpy()
         for i, column in enumerate(self._metrics.columns[1:]):
+            # TODO: Make this work when not all frames have landmarks
             data = self._metrics[column].to_numpy()
-            smoothed = savgol_filter(data, 51, 3)
+            smoothed = savgol_filter(data, min(len(data), 51), 3)
             if normalize:
                 shift = smoothed.min()
                 factor = smoothed.max()
