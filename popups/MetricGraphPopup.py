@@ -8,6 +8,7 @@ import os
 import numpy as np
 import pandas as pd
 from scipy.signal import savgol_filter
+from popups.Confirmation import Confirmation
 import DataHolders
 import persistentConfig
 from typing import List, Tuple, Dict, Optional, Union, Any
@@ -178,6 +179,8 @@ class MetricCalc(QtCore.QThread):
 
 class RenamableLabel(QtWidgets.QLineEdit):
     on_name_changed_signal = QtCore.pyqtSignal(str, str) # Old name, New name
+    on_editing_signal = QtCore.pyqtSignal()
+    stop_editing_signal = QtCore.pyqtSignal()
     clicked = QtCore.pyqtSignal()
 
     _old_name: str
@@ -199,6 +202,7 @@ class RenamableLabel(QtWidgets.QLineEdit):
         self.unsetCursor()
         self.setSelection(0, 0)
         self.setReadOnly(True)
+        self.stop_editing_signal.emit()
         if new_value != self._old_name:
             self.on_name_changed_signal.emit(self._old_name, new_value)
             self._old_name = new_value
@@ -210,32 +214,63 @@ class RenamableLabel(QtWidgets.QLineEdit):
 
     def mouseDoubleClickEvent(self, event):
         self.setReadOnly(False)
+        self.on_editing_signal.emit()
         self.clicked.emit()
         self.selectAll()
         super().mouseDoubleClickEvent(event)
 
 
 class EditableCheckbox(QtWidgets.QWidget):
+    metric: DataHolders.Metric
+
     stateChanged: QtCore.pyqtSignal = QtCore.pyqtSignal()
     nameChanged: QtCore.pyqtSignal = QtCore.pyqtSignal(str, str)
+    typeChanged: QtCore.pyqtSignal = QtCore.pyqtSignal(DataHolders.Metric, DataHolders.MetricType)
 
-    def __init__(self, label: str, parent=None):
+    checkbox: QtWidgets.QCheckBox
+    label: RenamableLabel
+    type_combo: QtWidgets.QComboBox
+
+    def __init__(self, metric: DataHolders.Metric, parent=None):
         super(EditableCheckbox, self).__init__(parent=parent)
+        self.metric = metric
         self.layout = QtWidgets.QHBoxLayout()
 
         self.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
 
-        self.label = RenamableLabel(label)
         self.checkbox = QtWidgets.QCheckBox()
+        self.label = RenamableLabel(metric.name)
+        self.type_combo = QtWidgets.QComboBox()
+        self.type_combo.addItem("Length", DataHolders.MetricType.LENGTH)
+        self.type_combo.addItem("Area", DataHolders.MetricType.AREA)
+        self.type_combo.setCurrentIndex(int(metric.type == DataHolders.MetricType.AREA))
         self.layout.addWidget(self.checkbox)
         self.layout.addWidget(self.label)
+        self.layout.addWidget(self.type_combo)
+        self.type_combo.hide()
 
         self.setLayout(self.layout)
 
         self.label.clicked.connect(self.checkbox.toggle)
 
         self.checkbox.stateChanged.connect(self.stateChanged.emit)
+        self.label.on_editing_signal.connect(self.on_editing)
+        self.label.stop_editing_signal.connect(self.on_stop_editing)
         self.label.on_name_changed_signal.connect(self.nameChanged.emit)
+        self.type_combo.currentIndexChanged.connect(self.on_type_changed)
+
+    @QtCore.pyqtSlot()
+    def on_editing(self):
+        self.type_combo.show()
+
+    @QtCore.pyqtSlot()
+    def on_stop_editing(self):
+        self.type_combo.hide()
+
+    @QtCore.pyqtSlot(int)
+    def on_type_changed(self, index: int):
+        new_type = self.type_combo.itemData(index)
+        self.typeChanged.emit(self.metric, new_type)
 
     def isChecked(self) -> bool:
         return self.checkbox.isChecked()
@@ -271,7 +306,7 @@ class MetricGraphWindow(QtWidgets.QMainWindow):
     _gridspec_duo: matplotlib.figure.GridSpec
 
     # Styling Data
-    _colors = ["b", "g", "r", "c", "m", "y", "k", "w"]
+    _colors = ["b", "g", "r", "c", "m", "y", "k"]
     _metric_colors: Dict[str, str]
     _active_metrics: List[str]
 
@@ -347,9 +382,10 @@ class MetricGraphWindow(QtWidgets.QMainWindow):
 
     def populate_metric_picker(self):
         for metric in self._metrics:
-            metric_checkbox = EditableCheckbox(metric.name, self)
+            metric_checkbox = EditableCheckbox(metric, self)
             metric_checkbox.stateChanged.connect(self.set_metrics_by_checkbox)
             metric_checkbox.nameChanged.connect(self.on_metric_name_changed)
+            metric_checkbox.typeChanged.connect(self.on_metric_type_changed)
             metric_checkbox.resize(500, 50)
             self.metric_checkboxes[metric.name] = metric_checkbox
             self.metrics_picker.insertWidget(0, metric_checkbox)
@@ -390,6 +426,11 @@ class MetricGraphWindow(QtWidgets.QMainWindow):
         self.create_plot()
         self.draw_plot()
         self._config.save()
+
+    @QtCore.pyqtSlot(DataHolders.Metric, DataHolders.MetricType)
+    def on_metric_type_changed(self, metric: DataHolders.Metric, metric_type: DataHolders.MetricType):
+        metric.type = metric_type
+        self.calc_metrics()
 
     def populate_normalize_combo(self):
         norm_index = 0
@@ -561,6 +602,10 @@ class MetricGraphWindow(QtWidgets.QMainWindow):
         """
         # TODO: Maybe make this not reload the metrics
         # TODO: Also pop up a confirmation window
+        message = "Delete Metrics: \n{}".format(',\n'.join(self._active_metrics))
+        self.conf_box = Confirmation("Deleting metrics", message, on_conf=self.on_delete_conf)
+
+    def on_delete_conf(self):
         metrics = [metric for metric in self._metrics if metric.name not in self._active_metrics]
         self._active_metrics = []
         self._metrics.clear()

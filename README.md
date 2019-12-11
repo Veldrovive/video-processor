@@ -28,14 +28,13 @@ Select the points you wish to be in the metric then select the first landmark or
 Press `Shift+Ctrl+S` to display metric analysis. This will bring up a window where metrics can be viewed.
 By default, all metrics will be normalized by the distance between the eyes.
 
+To rename or change the type of a metric, double click on the metric name in the selector.
+
 If you change metrics with the window open and wish to update the changes, press `Recalculate Metrics`.
 
 If you want to save a csv file with the currently viewed data (Including normalization) then press `Save Data`.
 
 If you want to remove a metric, select it and press `Delete Selected Metrics`.
-Note that currently, this will not prompt you to confirm and immediatly delete them. This will be changed
-
-Currently it is not possible to change the metric type so all user created metrics will be length.
 ### Display:
 By default, landmarks and metrics are shown. In order to change this, use the hotkeys `Ctrl+L`, `Ctrl+B`, and `Ctrl+M` respectively. Pressing these keys will toggle whether each of these is shown.
 
