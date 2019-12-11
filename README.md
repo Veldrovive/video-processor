@@ -14,20 +14,31 @@
 4. Take any metrics you need or edit the landmarks then use `ctrl+s` to save a new csv file.
 
 ## Controls:
+### Landmark Estimating:
+To estimate landmarks from the opened video, to to the `Landmarks` menu and press `Process Frames` or press `Ctrl+A`. This will bring up the landmark estimating window. In order to estimate only for a few frames, input frames in the standard printer format. E.g. `1-10` will estimate for frames 1-10 while `1-10, 20, 30` will estimate frames for 1-10 as well as 20 and 30.
 ### Selecting:
 To select a point, left click on it. In order to select a range of points, hold shift and drag over the points. When creating a metric, the order of selection decides the order to points in the metric. Points selected by dragging over them will be grouped and will act as one point at their centroid.
-In order to deselct all points, left click away from all points.
+In order to deselct all points, left click away from all points or press escape.
 ### Editing:
 To pick up and replace a point, right click on the point you want to move then right click on the location you wish to place the point. Use `ctrl+s` to save your edits to a csv.
 ### Metrics:
 *Work in progress*
 
-With the points you want in the metric selected, press `1` to create a length metric and `2` to create an area metric. Press `0` to remove metrics and `3` to evaluate metrics.
-### Display:
-*Work in progress*
+Select the points you wish to be in the metric then select the first landmark or group of landmarks again to complete the metric.
+Press `Shift+Ctrl+S` to display metric analysis. This will bring up a window where metrics can be viewed.
+By default, all metrics will be normalized by the distance between the eyes.
 
-By default, landmarks, bounding boxes, and metrics are show. In order to change this, use the hotkeys `L`, `B`, and `M` respectively. Pressing these keys will toggle whether each of these is shown.
+If you change metrics with the window open and wish to update the changes, press `Recalculate Metrics`.
+
+If you want to save a csv file with the currently viewed data (Including normalization) then press `Save Data`.
+
+If you want to remove a metric, select it and press `Delete Selected Metrics`.
+Note that currently, this will not prompt you to confirm and immediatly delete them. This will be changed
+
+Currently it is not possible to change the metric type so all user created metrics will be length.
+### Display:
+By default, landmarks and metrics are shown. In order to change this, use the hotkeys `Ctrl+L`, `Ctrl+B`, and `Ctrl+M` respectively. Pressing these keys will toggle whether each of these is shown.
 
 In order to zoom in, use your scroll wheel.
 
-Left click and drag to pan around the scene.
+Left click and drag without holding shift to pan around the scene.
