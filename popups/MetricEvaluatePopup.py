@@ -1,12 +1,13 @@
-from PyQt5 import QtWidgets, QtGui, QtCore, uic
+from PyQt5 import QtWidgets, QtGui, QtCore
+from uis.MetricEvaluatePopup import Ui_Form
 from typing import Dict, List, Tuple, Union
 import pandas as pd
 import numpy as np
-import utils
+import DataHolders
 
 class MetricCalc(QtCore.QThread):
-    _metrics: List[utils.Metric] = []
-    _landmarks: utils.Landmarks = None
+    _metrics: List[DataHolders.Metric] = []
+    _landmarks: DataHolders.Landmarks = None
 
     _distances = Dict[str, List[float]]
     _areas = Dict[str, List[float]]
@@ -14,7 +15,7 @@ class MetricCalc(QtCore.QThread):
     frame_done_signal = QtCore.pyqtSignal(int, float)  # Emits the index of the frame as well as the percent complete
     metrics_complete_signal = QtCore.pyqtSignal(pd.DataFrame)  # Emits the results of the metrics as a dataframe
 
-    def __init__(self, metrics, landmarks: utils.Landmarks):
+    def __init__(self, metrics, landmarks: DataHolders.Landmarks):
         super(MetricCalc, self).__init__()
         self._metrics = metrics
         self._landmarks = landmarks
@@ -54,9 +55,9 @@ class MetricCalc(QtCore.QThread):
             metric_type, landmarks, name = metric.type, metric.landmarks, metric.name
             measures = []
             for frame in frames:
-                if metric_type == utils.MetricType.LENGTH:
+                if metric_type == DataHolders.MetricType.LENGTH:
                     measures.append(self.calc_distance(frame, landmarks))
-                if metric_type == utils.MetricType.AREA:
+                if metric_type == DataHolders.MetricType.AREA:
                     measures.append(self.calc_area(frame, landmarks))
                 done_count += 1
                 self.frame_done_signal.emit(done_count, done_count / total)
@@ -65,12 +66,14 @@ class MetricCalc(QtCore.QThread):
         return
 
 
-class MetricWindow(QtWidgets.QMainWindow):
+class MetricEvaluateWindow(QtWidgets.QMainWindow):
+    ui: Ui_Form
+
     go_button: QtWidgets.QPushButton
     metric_container: QtWidgets.QVBoxLayout
     progress: QtWidgets.QProgressBar
-    _metrics: List[utils.Metric] = []
-    _landmarks: utils.Landmarks = None
+    _metrics: List[DataHolders.Metric] = []
+    _landmarks: DataHolders.Landmarks = None
     _metric_checkboxes: Dict[str, QtWidgets.QCheckBox] = {}
     _metrics_done: bool = False
     _save_path: str = None
@@ -78,21 +81,33 @@ class MetricWindow(QtWidgets.QMainWindow):
 
     metric_calc: MetricCalc
 
-    metric_done_signal = QtCore.pyqtSignal(object) # Emitted when metrics are done calculating
+    metric_done_signal = QtCore.pyqtSignal(pd.DataFrame) # Emitted when metrics are done calculating
 
-    def __init__(self, parent=None, metrics=None, landmarks: utils.Landmarks=None):
-        super(MetricWindow, self).__init__(parent)
-        uic.loadUi("uis/MetricPopup.ui", self)
+    def __init__(self, parent=None, metrics=None, landmarks: DataHolders.Landmarks=None):
+        super(MetricEvaluateWindow, self).__init__(parent)
+        self.ui = Ui_Form()
+        self.ui.setupUi(self)
+        self.set_metrics(metrics, landmarks)
+        self.move(0, 0)
+        self.ui.go_button.clicked.connect(self.run_metrics)
+
+    def set_metrics(self, metrics: List[DataHolders.Metric], landmarks: DataHolders.Landmarks):
         self._metrics = metrics
         self._landmarks = landmarks
-        self.move(0, 0)
+        if self._metrics is None or self._landmarks is None:
+            self.ui.go_button.hide()
+            return
+        for checkbox_name in self._metric_checkboxes:
+            checkbox = self._metric_checkboxes[checkbox_name]
+            self.ui.metric_container.removeWidget(checkbox)
+        self._metric_checkboxes = {}
         for metric in self._metrics:
             name = metric.name
             metric_checkbox = QtWidgets.QCheckBox(name)
             metric_checkbox.toggle()
             self._metric_checkboxes[name] = metric_checkbox
-            self.metric_container.insertWidget(0, metric_checkbox)
-        self.go_button.clicked.connect(self.run_metrics)
+            self.ui.metric_container.insertWidget(0, metric_checkbox)
+        self.ui.go_button.show()
 
     def run_metrics(self) -> bool:
         running_metrics = []
@@ -117,30 +132,15 @@ class MetricWindow(QtWidgets.QMainWindow):
         return True
 
     def on_metrics_start(self):
-        self.progress = QtWidgets.QProgressBar(self)
-        self.progress.setRange(0, 1000)
-        self.metric_container.addWidget(self.progress)
-        self.file_save()
+        self.ui.progress = QtWidgets.QProgressBar(self)
+        self.ui.progress.setRange(0, 1000)
+        self.ui.metric_container.addWidget(self.ui.progress)
 
     def on_frame_done(self, frame_count: int, progress: float):
-        self.progress.setValue(int(progress*1000))
+        self.ui.progress.setValue(int(progress*1000))
 
     def on_metrics_done(self, metrics: pd.DataFrame):
         self.metric_done_signal.emit(metrics)
         self._final_metrics = metrics
-        self.save_metrics()
-
-    def file_save(self):
-        save_path = QtWidgets.QFileDialog.getSaveFileName(self, 'Save File', filter='CSV(*.csv)')[0]
-        self._save_path = save_path
-        self.save_metrics()
-
-    def save_metrics(self):
-        if self._save_path is None:
-            return False
-        if self._final_metrics is None:
-            return False
-        if len(self._save_path) > 0:
-            self._final_metrics.to_csv(self._save_path)
         self.close()
 

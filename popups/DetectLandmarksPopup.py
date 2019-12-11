@@ -1,46 +1,47 @@
-from PyQt5 import QtWidgets, QtGui, QtCore, uic
+from PyQt5 import QtWidgets, QtGui, QtCore
+from uis.DetectLandmarksPopup import Ui_Form
 import cv2
 import pandas as pd
 import utils
 import time
 
-from typing import List, Set
+from typing import List, Set, Optional
 
 from landmark_detection.Detector import LandmarkDetector
 
 
 class DetectLandmarksWindow(QtWidgets.QMainWindow):
-    go_button: QtWidgets.QPushButton
-    all_frames_radio: QtWidgets.QRadioButton
-    some_frames_radio: QtWidgets.QRadioButton
-    some_frames_input: QtWidgets.QLineEdit
-    progress: QtWidgets.QProgressBar
-    time_estimate: QtWidgets.QLabel
+    ui: Ui_Form
 
     _start_time: float
     _times: List[float]
 
-    _video: cv2.VideoCapture
-    _save_path: str
+    _video: Optional[cv2.VideoCapture]
+    _save_path: Optional[str]
     _landmarks: pd.DataFrame
 
-    _detector: LandmarkDetector
+    _detector: LandmarkDetector = None
 
     got_landmarks_signal = QtCore.pyqtSignal(str, pd.DataFrame)
 
-    def __init__(self, video: cv2.VideoCapture, save_path: str, parent=None):
+    def __init__(self, video: cv2.VideoCapture=None, save_path: str=None, parent=None):
         super(DetectLandmarksWindow, self).__init__(parent)
-        uic.loadUi("uis/DetectLandmarksPopup.ui", self)
+        self.ui = Ui_Form()
+        self.ui.setupUi(self)
 
-        self.progress.hide()
-        self.time_estimate.hide()
+        self.ui.progress.hide()
+        self.ui.time_estimate.hide()
 
         self._times = []
 
         self._video = video
         self._save_path = save_path
         self.move(0, 0)
-        self.go_button.clicked.connect(self.run_detection)
+        self.ui.go_button.clicked.connect(self.run_detection)
+
+    def set_detector(self, video: cv2.VideoCapture, save_path: str):
+        self._video = video
+        self._save_path = save_path
 
     @staticmethod
     def frame_desc_to_list(desc: str) -> Set[int]:
@@ -60,44 +61,49 @@ class DetectLandmarksWindow(QtWidgets.QMainWindow):
                     continue
         return frames
 
+    def create_detector(self) -> bool:
+        if self._video is None or self._save_path is None:
+            return False
+        if self._detector is None:
+            self._detector = LandmarkDetector(num_frames=1)
+            self._detector.frame_done_signal.connect(self.on_new_frame)
+            self._detector.landmarks_complete_signal.connect(self.on_finished)
+            self._detector.new_video_started_signal.connect(self.on_start)
+        self._detector.start(100)
+        return True
+
     def run_detection(self):
-        self._detector = LandmarkDetector(num_frames=1)
-        self._detector.frame_done_signal.connect(self.on_new_frame)
-        self._detector.landmarks_complete_signal.connect(self.on_finished)
-        self._detector.new_video_started_signal.connect(self.on_start)
-        self._detector.start()
-        if self.all_frames_radio.isChecked():
-            print("Running detect for all frames")
+        succ = self.create_detector()
+        if not succ:
+            return False
+        if self.ui.all_frames_radio.isChecked():
+            self._detector.set_frames(None)
             self._detector.add_video(self._save_path, self._video)
-        elif self.some_frames_radio.isChecked():
-            frame_desc = self.some_frames_input.text()
+        elif self.ui.some_frames_radio.isChecked():
+            frame_desc = self.ui.some_frames_input.text()
             frames = self.frame_desc_to_list(frame_desc)
             self._detector.set_frames(frames)
             self._detector.add_video(self._save_path, self._video)
-            print("Running detect for frames:", frames)
 
     @QtCore.pyqtSlot(str)
     def on_start(self, name: str):
         self._start_time = time.time()
-        self.progress.setValue(0)
-        self.progress.setRange(0, 1000)
-        self.progress.show()
-        self.time_estimate.show()
+        self.ui.progress.setValue(0)
+        self.ui.progress.setRange(0, 1000)
+        self.ui.progress.show()
+        self.ui.time_estimate.show()
         self._times.append(time.time())
 
     @QtCore.pyqtSlot(str, pd.DataFrame)
     def on_finished(self, name: str, landmarks: pd.DataFrame):
-        print("Got Landmarks")
         self.got_landmarks_signal.emit(name, landmarks)
-        self._detector.stop()
         self.close()
 
     @QtCore.pyqtSlot(int, float)
     def on_new_frame(self, frame: int, percent: float):
-        print(f"{frame} frames detected at {round(percent * 100, 2)}% done")
         self._times.append(time.time())
         if percent == 0:
-            self.time_estimate.setText(f"Estimated Time Left: Infinite")
+            self.ui.time_estimate.setText(f"Estimated Time Left: Infinite")
         else:
             frame_delta = min(30, len(self._times))
             time_diff = self._times[-1]-self._times[-1*frame_delta]
@@ -108,9 +114,9 @@ class DetectLandmarksWindow(QtWidgets.QMainWindow):
             time_string = ', '.join('{} {}'.format(value, name)
                                     for name, value in periods
                                     if value)
-            self.time_estimate.setText(f"Estimated Time Left: {time_string}")
+            self.ui.time_estimate.setText(f"Estimated Time Left: {time_string}")
 
-        self.progress.setValue(int(percent*1000))
+        self.ui.progress.setValue(int(percent*1000))
 
     def stop(self):
         self._detector.stop()

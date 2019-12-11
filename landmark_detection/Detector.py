@@ -65,7 +65,7 @@ class LandmarkDetector(QtCore.QThread):
         self._face_detector_net.eval()
         self._face_detector_net.reference_scale = 195
 
-    def set_frames(self, frames: Iterable[int]):
+    def set_frames(self, frames: Optional[Iterable[int]]):
         self._frames = frames
 
     def add_video(self, video_name: str, handler: cv2.VideoCapture) -> bool:
@@ -246,7 +246,6 @@ class LandmarkDetector(QtCore.QThread):
             frames = range(video_length)
         frame_list = [frame for frame in frames if 0 <= frame < video_length]
         frame_list.sort()
-        print("Evaluating for frames:", frame_list)
 
         if number_of_frames > video_length:
             number_of_frames = video_length
@@ -259,7 +258,6 @@ class LandmarkDetector(QtCore.QThread):
             self.frame_done_signal.emit(i*number_of_frames, (i*number_of_frames)/len(frame_list))
             # Get a list of frame numbers of length number_of_frames
             sequence = frame_list[i*number_of_frames:(i+1)*number_of_frames]
-            print("Evaluating Sequence:", sequence)
             if len(sequence) == 0:
                 break
             frame_stack = np.zeros((len(sequence), video_height, video_width, video_channels))
@@ -280,6 +278,7 @@ class LandmarkDetector(QtCore.QThread):
                     print(f"Skipped Frame: {frame}")
             if frame_for_boundingbox is None:
                 continue
+            # TODO: Make it so that this is only calculated every n frames instead of every time a sequence is processed
             bboxlist = self.detect_bbox(self._face_detector_net, torch.from_numpy(frame_for_boundingbox).float().to(self._device))
             keep = self.nms(bboxlist)
             bboxlist = bboxlist[keep, :]
@@ -344,4 +343,5 @@ class LandmarkDetector(QtCore.QThread):
                 self.new_video_started_signal.emit(name)
                 landmarks = self.find_landmarks(handler, frames=self._frames, number_of_frames=self._num_parallel_frames)
                 self.landmarks_complete_signal.emit(name, landmarks)
+            time.sleep(0.1)
 

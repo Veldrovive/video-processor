@@ -1,16 +1,15 @@
-from PyQt5 import QtWidgets, QtGui, QtCore, uic
+from PyQt5 import QtWidgets, QtGui, QtCore
+from uis.MetricViewerPopup import Ui_Form
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
 import matplotlib
 from matplotlib.figure import Figure
 import os
 import pandas as pd
+import numpy as np
 from scipy.signal import savgol_filter
 
 from typing import Optional, List, Tuple, Dict
-
-#TODO: Look into https://github.com/jchanvfx/NodeGraphQt for higher level
-# user interaction
 
 class ToolBar(NavigationToolbar):
     selecting_frame: bool = False
@@ -18,7 +17,7 @@ class ToolBar(NavigationToolbar):
     mouse_move_signal = QtCore.pyqtSignal(object)
     frame_select_signal = QtCore.pyqtSignal(bool)
 
-    def __init__(self, canvas, parent, coordinates=True):
+    def __init__(self, canvas, parent=None, coordinates=True):
         super(ToolBar, self).__init__(canvas, parent, coordinates=coordinates)
 
     def _init_toolbar(self):
@@ -115,10 +114,7 @@ class RenderCanvas(QtCore.QRunnable):
 
 
 class MetricDisplayWindow(QtWidgets.QMainWindow):
-    main_container: QtWidgets.QVBoxLayout
-    metric_container: QtWidgets.QHBoxLayout
-    normalize_checkbox: QtWidgets.QCheckBox
-    subtract_checkbox: QtWidgets.QCheckBox
+    ui: Ui_Form
 
     _thread_pool: QtCore.QThreadPool
 
@@ -135,6 +131,9 @@ class MetricDisplayWindow(QtWidgets.QMainWindow):
     _raw_plot_lines: Dict[str, matplotlib.lines.Line2D]
     _smoothed_plot_lines: Dict[str, matplotlib.lines.Line2D]
 
+    _frames = np.ndarray
+    _raw_data: Dict[str, np.ndarray]
+
     curr_display: int = 0
     num_metrics: int = 0
 
@@ -146,34 +145,44 @@ class MetricDisplayWindow(QtWidgets.QMainWindow):
 
     def __init__(self, parent=None, metrics: Optional[pd.DataFrame]=None):
         super(MetricDisplayWindow, self).__init__(parent=parent)
-        uic.loadUi("uis/MetricViewerPopup.ui", self)
+        self.ui = Ui_Form()
 
-        self._metrics = metrics
+        self._raw_data = {}
+
         self._figure = Figure()
         self._canvas = Canvas(self._figure)
-        self._toolbar = ToolBar(self._canvas, self)
+        self._toolbar = ToolBar(self._canvas)
+        self.addToolBar(QtCore.Qt.BottomToolBarArea, self._toolbar)
+
+        self.ui.setupUi(self)
 
         self._thread_pool = QtCore.QThreadPool()
-
-        self.create_plot()
 
         self._toolbar.mouse_move_signal.connect(self.on_mouse_move)
         self._canvas.mouse_clicked_signal.connect(self.on_click)
 
-        self.normalize_checkbox.stateChanged.connect(self.set_normalize)
+        self.ui.normalize_checkbox.stateChanged.connect(self.set_normalize)
 
-        layout = self.main_container
+        layout = self.ui.main_container
         layout.addWidget(self._canvas)
-        self.addToolBar(self._toolbar)
 
+        self.set_metrics(metrics)
+        self.create_plot_basic()
+        self.set_metrics_by_checkbox()
+
+    def set_metrics(self, metrics: Optional[pd.DataFrame]) -> bool:
+        self._metrics = metrics
         self._metric_checkboxes = {}
+        if self._metrics is None or len(self._metrics.columns) < 2:
+            return False
         for i, metric in enumerate(self._metrics.columns[1:]):
             metric_checkbox = QtWidgets.QCheckBox(metric)
             metric_checkbox.stateChanged.connect(self.set_metrics_by_checkbox)
-            if i == len(self._metrics.columns)-2:
+            if i == len(self._metrics.columns) - 2:
                 metric_checkbox.toggle()
             self._metric_checkboxes[metric] = metric_checkbox
-            self.metric_container.insertWidget(0, metric_checkbox)
+            self.ui.metric_container.insertWidget(0, metric_checkbox)
+        self.create_plot_basic(self._normalize)
         self.set_metrics_by_checkbox()
 
 
@@ -188,8 +197,8 @@ class MetricDisplayWindow(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot(int)
     def set_normalize(self, checked: int):
-        self._normalize = self.normalize_checkbox.isChecked()
-        self.create_plot(self._normalize)
+        self._normalize = self.ui.normalize_checkbox.isChecked()
+        self.create_plot_basic(self._normalize)
         self.set_metrics_by_checkbox()
 
     @QtCore.pyqtSlot(int)
@@ -201,25 +210,54 @@ class MetricDisplayWindow(QtWidgets.QMainWindow):
                 active_metrics.append(metric_name)
         self.draw_plot(cols=active_metrics)
 
-    def create_plot(self, normalize=False):
+    def create_plot_basic(self, normalize=False) -> bool:
+        # TODO: Plot length and area seperatly and normalize based on the inter-eye distance
+        # TODO: Allow users to delete and save
         self.ax = self._figure.add_subplot(111)
         self.ax.clear()
         self._raw_plot_lines = {}
         self._smoothed_plot_lines = {}
-        frames = self._metrics["Frame_number"].to_numpy()
+        if self._metrics is None or self._metrics.empty:
+            return False
+        self._frames = self._metrics["Frame_number"].to_numpy()
         for i, column in enumerate(self._metrics.columns[1:]):
-            # TODO: Make this work when not all frames have landmarks
             data = self._metrics[column].to_numpy()
-            smoothed = savgol_filter(data, min(len(data), 51), 3)
+            self._raw_data[column] = data
+            window = min(len(data), 51)
+            if window % 2 == 0:
+                window -= 1
+            if window < 3:
+                smoothed = data
+            else:
+                smoothed = savgol_filter(data, window, 3)
             if normalize:
                 shift = smoothed.min()
                 factor = smoothed.max()-shift
                 data = (data-shift)/factor
                 smoothed = (smoothed-shift)/factor
             color = self.colors[i % len(self.colors)]
-            self._smoothed_plot_lines[column] = self.ax.plot(frames, smoothed, 'None', color=color, label=column)[0]
-            self._raw_plot_lines[column] = self.ax.plot(frames, data, "None", color=color, markersize=1, alpha=0.4, label=column)[0]
+            self._smoothed_plot_lines[column] = self.ax.plot(self._frames, smoothed, 'None', color=color, label=column)[0]
+            self._raw_plot_lines[column] = self.ax.plot(self._frames, data, "None", color=color, markersize=1, alpha=0.4, label=column)[0]
         self.ax.set_xlabel("Frame")
+        return True
+
+    def create_plot_advanced(self, data: List[Tuple[str, np.ndarray]]):
+        self.ax = self._figure.add_subplot(111)
+        self.ax.clear()
+        self._smoothed_plot_lines = {}
+        self._raw_plot_lines = {}
+        if self._metrics is None or self._metrics.empty:
+            return False
+        self._frames = self._metrics["Frame_number"].to_numpy()
+        for i, info in enumerate(data):
+            name, raw_data = info
+            self._raw_data[name] = raw_data
+            color = self.colors[i % len(self.colors)]
+            self._smoothed_plot_lines[name] = self.ax.plot(self._frames, raw_data, "-", color=color, markersize=1, alpha=0.4, label=name)[0]
+            self._raw_plot_lines[name] = self._smoothed_plot_lines[name]
+        self.ax.set_xlabel("Frame")
+        self.draw_plot()
+        return True
 
     def draw_plot(self, cols: List[str]=None, show_orig: bool = None):
         if show_orig is None:
@@ -229,6 +267,8 @@ class MetricDisplayWindow(QtWidgets.QMainWindow):
             self._smoothed_plot_lines[col].set_linestyle("None")
         max_val = None
         min_val = None
+        if cols is None:
+            cols = self._smoothed_plot_lines.keys()
         for col in cols:
             line = self._smoothed_plot_lines[col]
             line.set_linestyle("-")

@@ -1,14 +1,17 @@
-from PyQt5 import QtWidgets, QtGui, QtCore, uic
+from PyQt5 import QtWidgets, QtGui, QtCore
+from uis.LandmarkEditor import Ui_Form
 import vidViewer
-import utils
+import DataHolders
 
 class MoveLandmarkWindow(QtWidgets.QMainWindow):
-    _landmark: utils.Landmark
+    _landmark: DataHolders.Landmark
     _view: vidViewer.ImageViewer
 
-    def __init__(self, parent=None, view: vidViewer.ImageViewer=None, landmark: utils.Landmark=None):
+    def __init__(self, parent=None, view: vidViewer.ImageViewer=None, landmark: DataHolders.Landmark=None):
         super(MoveLandmarkWindow, self).__init__(parent)
-        uic.loadUi("uis/LandmarkEditor.ui", self)
+        self.ui = Ui_Form()
+        self.ui.setupUi(self)
+
         self.move(0, 0)
         self._landmark = landmark
         self._view = view
