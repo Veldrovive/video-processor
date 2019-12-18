@@ -322,7 +322,7 @@ class MetricGraphWindow(QtWidgets.QMainWindow):
     _config: persistentConfig.Config
 
     # Plot Data
-    _curr_lines: Dict[str, Any]
+    _curr_lines: Dict[str, Any] = None
 
     # Data Options
     _normalize: bool = True
@@ -335,6 +335,7 @@ class MetricGraphWindow(QtWidgets.QMainWindow):
     def __init__(self, parent=None):
         super(MetricGraphWindow, self).__init__(parent=parent)
         uic.loadUi("./uis/MetricGraph.ui", self)
+        self.setWindowTitle("Metric Analysis")
         self._thread_pool = QtCore.QThreadPool()
         self._active_metrics = []
 
@@ -522,7 +523,9 @@ class MetricGraphWindow(QtWidgets.QMainWindow):
                 ax = self._length_axis
             self._curr_lines[metric_name] = ax.plot(self._frames, data, 'None', color=self._metric_colors[metric_name], label=metric_name)[0]
 
-    def draw_plot(self):
+    def draw_plot(self) -> bool:
+        if self._curr_lines is None:
+            return False
         active_plots = set()
         length_cols = list()
         area_cols = list()
@@ -552,6 +555,7 @@ class MetricGraphWindow(QtWidgets.QMainWindow):
         self._length_axis.legend(handles=[self._curr_lines[col] for col in length_cols])
         self._area_axis.legend(handles=[self._curr_lines[col] for col in area_cols])
         self.render_plot()
+        return True
 
     def render_plot(self):
         self._thread_pool.start(RenderCanvas(self._canvas))
@@ -601,20 +605,14 @@ class MetricGraphWindow(QtWidgets.QMainWindow):
         Removes the selected metrics from the metrics list
         """
         # TODO: Maybe make this not reload the metrics
-        # TODO: Also pop up a confirmation window
         message = "Delete Metrics: \n{}".format(',\n'.join(self._active_metrics))
-        self.conf_box = Confirmation("Deleting metrics", message, on_conf=self.on_delete_conf)
+        self.conf_box = Confirmation("Deleting metrics", message, parent=self, on_conf=self.on_delete_conf)
 
     def on_delete_conf(self):
-        metrics = [metric for metric in self._metrics if metric.name not in self._active_metrics]
-        self._active_metrics = []
-        self._metrics.clear()
-        self._metrics.extend(metrics)
+        """
+        Runs once user has confirmed they want to delete selected metrics
+        """
+        for metric_name in self._active_metrics:
+            self._config.metrics.remove(metric_name)
         self.set_config(self._config, self._landmarks)
         self._config.save()
-
-
-
-
-
-

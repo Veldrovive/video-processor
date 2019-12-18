@@ -1,24 +1,12 @@
-import os
 import sys
-import cv2
 import pandas as pd
-from typing import Tuple, Optional, Union
-
-import vidViewer
-import utils
 
 from PyQt5 import QtWidgets, QtGui, QtCore
 
-import numpy as np
-
-from popups.MoveLandmarkPopup import MoveLandmarkWindow
 from popups.DetectLandmarksPopup import DetectLandmarksWindow
-from popups.MetricEvaluatePopup import MetricEvaluateWindow
-from popups.MetricDisplayPopup import MetricDisplayWindow
 from popups.MetricGraphPopup import MetricGraphWindow
 from popups.ConfigPopup import ConfigWindow
 from popups.MetricFlow import MetricFlow
-import persistentConfig
 
 from uis.VideoViewerPopup import VideoViewerWindow
 
@@ -60,8 +48,8 @@ class MainWindow(VideoViewerWindow):
         flow_window: MetricFlow = self.get_window("metrics_flow")
         flow_window.set_metric_data(self._calculated_metrics)
         flow_window.show()
-        grapher_window: MetricDisplayWindow = self.get_window("display_metrics")
-        flow_window.set_graph_callback(grapher_window.create_plot_advanced)
+        # grapher_window: MetricDisplayWindow = self.get_window("display_metrics")
+        # flow_window.set_graph_callback(grapher_window.create_plot_advanced)
 
     def setup_landmark_detector_window(self):
         self.add_window("landmark_detector", DetectLandmarksWindow)

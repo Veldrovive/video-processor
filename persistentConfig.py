@@ -1,6 +1,7 @@
 import DataHolders
 from typing import Dict, Tuple, List, Union, Optional
 from dataclasses import dataclass, field
+from popups.Confirmation import Confirmation
 import tempfile
 import pickle
 
@@ -25,37 +26,38 @@ group_colors = {
     "lower_mouth": (232, 39, 181)
 }
 
-default_metrics = list()
-default_metrics.append(DataHolders.Metric(
-    "Inter-Eye Distance",
-    DataHolders.MetricType.LENGTH,
-    [39, 42]
-))
-default_metrics.append(DataHolders.Metric(
-    "Left Mouth Area",
-    DataHolders.MetricType.AREA,
-    list(range(51, 57+1))
-))
-default_metrics.append(DataHolders.Metric(
-    "Right Mouth Area",
-    DataHolders.MetricType.AREA,
-    [57, 58, 59, 48, 49, 50, 51]
-))
-default_metrics.append(DataHolders.Metric(
-    "Left Eyebrow-Nose Distance",
-    DataHolders.MetricType.LENGTH,
-    [list(range(17, 21+1)), 30]
-))
-default_metrics.append(DataHolders.Metric(
-    "Right Eyebrow-Nose Distance",
-    DataHolders.MetricType.LENGTH,
-    [list(range(22, 26 + 1)), 30]
-))
-default_metrics.append(DataHolders.Metric(
-    "Mouth Vertical Range",
-    DataHolders.MetricType.LENGTH,
-    [51, 57]
-))
+default_metrics = [
+    DataHolders.Metric(
+        "Inter-Eye Distance",
+        DataHolders.MetricType.LENGTH,
+        [39, 42]
+    ),
+    DataHolders.Metric(
+        "Left Mouth Area",
+        DataHolders.MetricType.AREA,
+        list(range(51, 57+1))
+    ),
+    DataHolders.Metric(
+        "Right Mouth Area",
+        DataHolders.MetricType.AREA,
+        [57, 58, 59, 48, 49, 50, 51]
+    ),
+    DataHolders.Metric(
+        "Left Eyebrow-Nose Distance",
+        DataHolders.MetricType.LENGTH,
+        [list(range(17, 21+1)), 30]
+    ),
+    DataHolders.Metric(
+        "Right Eyebrow-Nose Distance",
+        DataHolders.MetricType.LENGTH,
+        [list(range(22, 26 + 1)), 30]
+    ),
+    DataHolders.Metric(
+        "Mouth Vertical Range",
+        DataHolders.MetricType.LENGTH,
+        [51, 57]
+    )
+]
 
 highlight_color = (247, 222, 59)
 
@@ -121,6 +123,8 @@ class MetricConfig:
         return False
 
 class Config:
+    conf: Confirmation
+
     group: GroupConfig
     playback: PlaybackConfig
     metrics: MetricConfig
@@ -137,6 +141,7 @@ class Config:
             try:
                 with open(self.save_path, "rb") as f:
                     self.group, self.playback, self.metrics = pickle.load(f)
+                    # self.conf = Confirmation("Loaded config", f"Config loaded from: {self.save_path}", can_deny=False)
             except (FileNotFoundError, EOFError):
                 self.set_defaults()
         else:
@@ -144,6 +149,7 @@ class Config:
             self.set_defaults()
 
     def set_defaults(self):
+        self.conf = Confirmation("Using default values", "No past config found", can_deny=False)
         self.group = GroupConfig()
         self.playback = PlaybackConfig()
         self.metrics = MetricConfig()

@@ -1,6 +1,5 @@
 from typing import Dict, List, Tuple, Optional, Union
 from PyQt5 import QtWidgets, QtGui, QtCore
-import os
 import numpy as np
 import cv2
 import pandas as pd
@@ -11,10 +10,6 @@ from queue import Queue
 import persistentConfig
 import DataHolders
 import utils
-
-from popups.MetricEvaluatePopup import MetricEvaluateWindow
-from popups.MetricCreationPopup import MetricCreationWindow
-from popups.MetricDisplayPopup import MetricDisplayWindow
 
 class FrameMarker(QtCore.QRunnable):
     _img_marker: utils.ImageMarker = None
@@ -278,10 +273,6 @@ class ImageViewer(QtWidgets.QGraphicsView):
 
     _lifted_point: Optional[int] = None
 
-    _metric_creation_window: MetricCreationWindow = None
-    _metric_popup: MetricEvaluateWindow = None
-    _metric_display_popup: MetricDisplayWindow = None
-
     def __init__(self, config: persistentConfig.Config, reader: cv2.VideoCapture=None, landmarks: pd.DataFrame=None):
         super(ImageViewer, self).__init__()
         self.config = config
@@ -535,6 +526,11 @@ class ImageViewer(QtWidgets.QGraphicsView):
             self.centerOn(rect.center())
             self._zoom = 0
 
+    def reset_held_keys(self):
+        self._held_keys = []
+        self.setDragMode(QtWidgets.QGraphicsView.NoDrag)
+        self._mode = DataHolders.InteractionMode.POINT
+
     def keyPressEvent(self, event: QtCore.QEvent):
         key = event.key()
         if key == QtCore.Qt.Key_Shift:
@@ -678,12 +674,6 @@ class ImageViewer(QtWidgets.QGraphicsView):
 
     def get_landmarks(self) -> DataHolders.Landmarks:
         return self._landmarks
-
-    @QtCore.pyqtSlot(pd.DataFrame)
-    def on_metrics_done(self, metrics: pd.DataFrame):
-        self._metric_display_popup = MetricDisplayWindow(self, metrics)
-        self._metric_display_popup.show()
-        self._metric_display_popup.select_frame_signal.connect(self.seek_frame)
 
     def get_edits(self) -> pd.DataFrame:
         return self._landmarks.get_dataframe()

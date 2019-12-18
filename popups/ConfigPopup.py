@@ -2,6 +2,11 @@ from PyQt5 import QtWidgets, QtGui
 from uis.ConfigPopup import Ui_Form
 import vidViewer
 
+"""
+This is not currently used. It could be used to edit config options such as 
+the color of certain groups or playback speed
+"""
+
 class ConfigWindow(QtWidgets.QMainWindow):
     ui: Ui_Form
 

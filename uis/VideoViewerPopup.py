@@ -4,6 +4,7 @@ import cv2
 import pandas as pd
 import persistentConfig
 import os
+import time
 
 from typing import Tuple, Dict, List, Union, Optional
 
@@ -15,6 +16,7 @@ class VideoViewerWindow(QtWidgets.QMainWindow):
 
     # Slider
     slider_bottom: QtWidgets.QSlider
+    video_length: int = -1
 
     # Frame bottom
     frame_label: QtWidgets.QLabel
@@ -39,6 +41,7 @@ class VideoViewerWindow(QtWidgets.QMainWindow):
 
     def __init__(self):
         super(VideoViewerWindow, self).__init__()
+        self.setWindowTitle("Video Viewer")
         self.config = persistentConfig.Config()
 
         self.main_Widget = QtWidgets.QWidget(self)
@@ -61,6 +64,10 @@ class VideoViewerWindow(QtWidgets.QMainWindow):
         self.show()
 
     def setup_viewer(self):
+        """
+        Creates the viewer object used to display the video
+        :return:
+        """
         self.viewer = ImageViewer(config=self.config)
         self.viewer.frame_change_signal.connect(self.on_frame_change)
         self.viewer.metadata_update_signal.connect(self.on_vid_metadata_change)
@@ -68,9 +75,25 @@ class VideoViewerWindow(QtWidgets.QMainWindow):
         self.viewer.playback_change_signal.connect(self.on_vid_playback_change)
 
     def add_menu(self, name: str):
+        """
+        Creates a menu for the top bar
+        :param name: The name of the menu and a way for the menu to be accessed
+        :return:
+        """
         self.menus[name] = self.menu_bar.addMenu(name)
 
     def add_action(self, menu: Optional[str], name: str, visible: bool = True, shortcut: str=None, status_tip: str=None, icon: str=None, callback=None):
+        """
+        Shorthand for action creation. Stores actions in the self.action dict
+        :param menu: The menu the action should be added to
+        :param name: A name by which the action can be accessed later
+        :param visible: Whether the action should actually appear in the menu
+        :param shortcut: The hotkeys used to activate the action
+        :param status_tip: What to show when the action is hovered over
+        :param icon: A visual icon to diplay with the action
+        :param callback: A callback for when the action is activated
+        :return:
+        """
         if menu not in self.menus:
             self.add_menu(menu)
         if menu is None:
@@ -90,7 +113,7 @@ class VideoViewerWindow(QtWidgets.QMainWindow):
 
     def setup_menu(self):
         """
-        Initializes actions and bind them to a menu
+        Initializes actions and bind them to their menus
         """
         self.menu_bar = QtWidgets.QMenuBar(self)
         self.setStyleSheet("""
@@ -204,8 +227,7 @@ class VideoViewerWindow(QtWidgets.QMainWindow):
 
         # fill the bottom toolbar
         self.toolBar_Bottom.addWidget(left_spacer)
-        self.toolBar_Bottom.addActions(
-            (self.actions["Seek Back"], self.actions["Play Video"], self.actions["Pause Video"], self.actions["Seek Forward"]))
+        self.toolBar_Bottom.addActions((self.actions["Seek Back"], self.actions["Play Video"], self.actions["Pause Video"], self.actions["Seek Forward"]))
         self.toolBar_Bottom.addWidget(right_spacer)
         self.toolBar_Bottom.setIconSize(QtCore.QSize(35, 35))
 
@@ -240,24 +262,29 @@ class VideoViewerWindow(QtWidgets.QMainWindow):
         self.setGeometry(600, 100, self.sizeHint().width(),
                          self.sizeHint().height())
 
-
     def add_window(self, name: str, window_object, *window_args):
         """
         Creates a new window that can be manipulated by the main thread
+        :param name: A name used to access the window later
+        :param window_object: The class that constructs the window
+        :param window_args: Any arguments to be passed to the window on initialization
+        :return:
         """
         self.windows[name] = window_object(self, *window_args)
         self.windows[name].hide()
         return self.get_window(name)
 
-    def get_window(self, name: str):
-        return self.windows[name]
-
+    def get_window(self, name: str) -> Optional:
+        if name in self.windows:
+            return self.windows[name]
+        return None
 
     def open_file_dialog(self, title: str, allowed_types: Union[List[str], str], multi=False) -> Optional[Union[List[str], str]]:
         """
         Prompt the user to choose a file that will be opened
         :param title: The title of the window
         :param allowed_types: File types that may be selected
+        :return: The file or files select or None
         """
         if isinstance(allowed_types, list):
             allowed_types = f"Types ({' '.join([f'*.{file_type}' for file_type in allowed_types])})"
@@ -271,7 +298,8 @@ class VideoViewerWindow(QtWidgets.QMainWindow):
         """
         Prompt the user to choose a file to save
         :param title: The title window
-        :param type: The file type that will be saved
+        :param type: The file type that will be saved. E.g. ['mp4', 'mov']
+        :return: The path to the chosen file name or None
         """
         if isinstance(allowed_types, list):
             allowed_types = f"Types ({' '.join([f'*.{file_type}' for file_type in allowed_types])})"
@@ -283,17 +311,26 @@ class VideoViewerWindow(QtWidgets.QMainWindow):
         """
         Handles the actions that should be taken when the viewer moves to a new
         frame
+        :param frame: The frame number the video has moved to
+        :return:
         """
+        # Human readable frame number of off by one of the machine one
         self.slider_bottom.setValue(frame + 1)
         self.frame_label.setText(
             'Frame : ' + str(int(frame) + 1) + '/' + str(
-                self.viewer._video_length))
+                self.video_length))
 
     @QtCore.pyqtSlot(int, float, object)
     def on_vid_metadata_change(self, length: int, frame_rate: float, resolution: Tuple[int, int]):
         """
         Handles actions that should be taken when the video changes
+        :param length: The length of the video
+        :param frame_rate: The frame rate of the video
+        :param resolution: The resolution of the video
+        :return:
         """
+        # We dont need access to the frame rate or resolution, but we set the slider based on the length
+        self.video_length = length
         self.slider_bottom.setMinimum(1)
         self.slider_bottom.setMaximum(length)
         self.slider_bottom.setValue(1)
@@ -305,6 +342,7 @@ class VideoViewerWindow(QtWidgets.QMainWindow):
         """
         Handles actions that should be taken when the video is played or paused
         """
+        # We want the user to only see the action that would change the video state
         self.actions["Play Video"].setVisible(not playing)
         self.actions["Pause Video"].setVisible(playing)
 
@@ -323,9 +361,8 @@ class VideoViewerWindow(QtWidgets.QMainWindow):
         Handles actions that should be taken when the slider is moved
         """
         frame = self.slider_bottom.value()
-        self.frame_label.setText(
-            'Frame : ' + str(int(frame)) + '/' + str(
-                self.viewer._video_length))
+        # Immediately change the bottom label, but don't update the viewer as that would be expensive
+        self.frame_label.setText('Frame : ' + str(int(frame)) + '/' + str(self.video_length))
 
     @QtCore.pyqtSlot()
     def slider_pressed(self):
@@ -340,7 +377,11 @@ class VideoViewerWindow(QtWidgets.QMainWindow):
         Handles actions that should be taken when the user releases the slider
         """
         frame = self.slider_bottom.value()
+        # Frame is in human readable so we convert back to start=0
         self.viewer.seek_frame(frame - 1)
+        # Ugly work around to an issue with the thread updating the current frame too late
+        # TODO: Make the thread immediately update its current frame in this case
+        time.sleep(1)
         self.viewer.play(cond_was_playing=True)
 
     @QtCore.pyqtSlot()
@@ -367,6 +408,7 @@ class VideoViewerWindow(QtWidgets.QMainWindow):
         if snapshot is None:
             return False
         save_path = self.save_file_dialog("Save Snapshot", ["png", "jpg"])
+        # imwrite saves in BGR so we have to convert back
         bgr_img = cv2.cvtColor(snapshot, cv2.COLOR_RGB2BGR)
         if save_path is not None:
             cv2.imwrite(save_path, bgr_img)
@@ -374,7 +416,7 @@ class VideoViewerWindow(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot()
     def open_config(self):
         """
-        Handles actions that should be taken when the user opens the conifg menu
+        Handles actions that should be taken when the user opens the config menu
         """
         print("Open Config event should be implemented")
         pass
@@ -397,13 +439,23 @@ class VideoViewerWindow(QtWidgets.QMainWindow):
         self.viewer.set_landmarks(self.landmarks_frame)
 
     def resizeEvent(self, event):
+        # Resizes the video when the user changes video size
         self.viewer.fitInView()
-        super(VideoViewerWindow, self).resizeEvent(event)
+        return super(VideoViewerWindow, self).resizeEvent(event)
 
+    def event(self, event: QtCore.QEvent):
+        # Catches all events since windowActivate event did not seem to work
+        if event.type() == 25 or event.type() == 24:
+            # These events catch focus and defocus of the window
+            # This solves a problem where shift would be stored
+            self.viewer.reset_held_keys()
+        return super(VideoViewerWindow, self).event(event)
 
     def open_video_file(self, file: str) -> Optional[cv2.VideoCapture]:
         """
-        Tries to open a video stream from the file
+        Tries to open the video stream from a file
+        :param file: The Video file path
+        :return: The video capture object or None
         """
         try:
             cap = cv2.VideoCapture(file)
@@ -417,6 +469,8 @@ class VideoViewerWindow(QtWidgets.QMainWindow):
         """
         Tries to open a landmark file and returns an empty DataFrame if
         one is not found
+        :param file: The landmark file path
+        :return: A DataFrame containing the landmarks if the file exists or an empty DataFrame
         """
         try:
             landmarks = pd.read_csv(file)

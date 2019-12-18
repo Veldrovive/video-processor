@@ -2,17 +2,21 @@ from PyQt5 import QtWidgets, QtGui, QtCore
 from uis.DetectLandmarksPopup import Ui_Form
 import cv2
 import pandas as pd
-import utils
 import time
 
 from typing import List, Set, Optional
 
 from landmark_detection.Detector import LandmarkDetector
 
+"""
+Prompts the user for which frames to run the facial landmark detection on and
+runs the FAN network in a thread
+"""
 
 class DetectLandmarksWindow(QtWidgets.QMainWindow):
     ui: Ui_Form
 
+    # These are used to compute an estimate for time remaining
     _start_time: float
     _times: List[float]
 
@@ -35,16 +39,28 @@ class DetectLandmarksWindow(QtWidgets.QMainWindow):
         self._times = []
 
         self._video = video
+        # save path is used as an identifier in case multiple videos are being run
         self._save_path = save_path
-        self.move(0, 0)
         self.ui.go_button.clicked.connect(self.run_detection)
 
     def set_detector(self, video: cv2.VideoCapture, save_path: str):
+        """
+        If the user wants to change the video being run
+        :param video: The cv2 object refering to the video
+        :param save_path: The path to the video file
+        :return:
+        """
         self._video = video
         self._save_path = save_path
 
     @staticmethod
     def frame_desc_to_list(desc: str) -> Set[int]:
+        """
+        Takes a description of numbers and turns it into a set containing all
+        number included. I.E. (1-5, 8, 10) -> [1, 2, 3, 4, 5, 8, 10]
+        :param desc: A string defining the numbers
+        :return: A sorted set of the numbers
+        """
         frames = set()
         sections = [sec.strip() for sec in desc.split(",")]
         for section in sections:
