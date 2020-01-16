@@ -1,5 +1,6 @@
 import sys
 import pandas as pd
+import cv2
 
 from PyQt5 import QtWidgets, QtGui, QtCore
 
@@ -24,7 +25,7 @@ class MainWindow(VideoViewerWindow):
 
     def setup_graph_window(self):
         window: MetricGraphWindow = self.add_window("graph_metrics", MetricGraphWindow)
-        self.add_action("&Metrics", "Display Metrics V2",
+        self.add_action("&Metrics", "Analyze Metrics",
                         shortcut="Ctrl+Shift+S",
                         status_tip="Show Metrics",
                         callback=lambda: self.populate_graph())
@@ -62,16 +63,21 @@ class MainWindow(VideoViewerWindow):
         detector_window: DetectLandmarksWindow = self.get_window("landmark_detector")
         if self.cap is None:
             return False
-        detector_window.set_detector(self.cap, self.landmark_file)
+        detector_window.set_detector(cv2.VideoCapture(self.video_file), self.landmark_file)
         detector_window.show()
         detector_window.got_landmarks_signal.connect(self.on_got_landmarks)
 
     @QtCore.pyqtSlot(str, pd.DataFrame)
     def on_got_landmarks(self, save_path: str, data: pd.DataFrame):
         # TODO: Maybe make this concat with the old landmarks
+        if not isinstance(self.landmarks_frame, pd.DataFrame):
+            self.landmarks_frame = pd.DataFrame()
         try:
-            data.to_csv(save_path)
-            self.landmarks_frame = data
+            self.landmarks_frame.set_index("Frame_number")
+            data.set_index("Frame_number")
+            new_frame: pd.DataFrame = pd.concat([self.landmarks_frame, data]).drop_duplicates(["Frame_number"], keep='last').sort_values(by=['Frame_number'], ascending=False)
+            new_frame.to_csv(self.landmark_file)
+            self.landmarks_frame = new_frame
             self.viewer.reset()
             self.viewer.set_reader(self.cap)
             self.viewer.set_landmarks(self.landmarks_frame)

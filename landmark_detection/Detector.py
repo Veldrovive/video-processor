@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 import pandas as pd
 from queue import Queue
+from collections import deque
 import math
 
 from landmark_detection.face_alignment.utils import *
@@ -220,7 +221,15 @@ class LandmarkDetector(QtCore.QThread):
                         preds[i, j] + 0.5, center, scale, hm.size(2), True)
         return preds, preds_orig
 
-    def find_landmarks(self, video_handler: cv2.VideoCapture, frames: Optional[Iterable[int]]=None, number_of_frames=10) -> pd.DataFrame:
+    def find_landmarks(self, video_handler: cv2.VideoCapture, frames: Optional[Iterable[int]]=None, number_of_frames=10, bbox_after=20) -> pd.DataFrame:
+        """
+        Compute the locations of facial landmarks
+        :param video_handler: A reference to the video handler
+        :param frames: An iterable of the frames to be analyzed
+        :param number_of_frames: Number of frames to be processed in parallel
+        :param bbox_after: Number of frames between bounding box calculations
+        :return: A dataframe of the landmarks and bounding boxes
+        """
         # define the DataFrame that will be used to store the landmark and boundingbox data
         df_cols = ["bbox_top_x", "bbox_top_y", "bbox_bottom_x", "bbox_bottom_y"]
         for i in range(0, 68):
@@ -245,7 +254,8 @@ class LandmarkDetector(QtCore.QThread):
         if frames is None:
             frames = range(video_length)
         frame_list = [frame for frame in frames if 0 <= frame < video_length]
-        frame_list.sort()
+        frame_list.sort(reverse=True)
+        input_stack = deque(frame_list)
 
         if number_of_frames > video_length:
             number_of_frames = video_length
@@ -254,12 +264,20 @@ class LandmarkDetector(QtCore.QThread):
         scale_factor = 4
 
         frame_for_boundingbox = None
-        for i in range(math.ceil(video_length/number_of_frames)):
-            self.frame_done_signal.emit(i*number_of_frames, (i*number_of_frames)/len(frame_list))
+        # The maximum amount of iterations required is math.ceil(video_length/number_of_frames)
+        frames_processed = 0
+        while input_stack:
+            self.frame_done_signal.emit(frames_processed, frames_processed/len(frame_list))
             # Get a list of frame numbers of length number_of_frames
-            sequence = frame_list[i*number_of_frames:(i+1)*number_of_frames]
-            if len(sequence) == 0:
-                break
+            sequence = []
+            # Constructs a sequence of frames satisfying number of frames and bbox requirements
+            while input_stack and len(sequence) < number_of_frames:
+                next_frame = input_stack.pop()
+                if not sequence or next_frame - sequence[0] < bbox_after:
+                    sequence.append(next_frame)
+                else:
+                    input_stack.append(next_frame)
+                    break
             frame_stack = np.zeros((len(sequence), video_height, video_width, video_channels))
             for index, frame_num in enumerate(sequence):
                 while video_handler.get(0) < frame_num:
@@ -278,7 +296,6 @@ class LandmarkDetector(QtCore.QThread):
                     print(f"Skipped Frame: {frame}")
             if frame_for_boundingbox is None:
                 continue
-            # TODO: Make it so that this is only calculated every n frames instead of every time a sequence is processed
             bboxlist = self.detect_bbox(self._face_detector_net, torch.from_numpy(frame_for_boundingbox).float().to(self._device))
             keep = self.nms(bboxlist)
             bboxlist = bboxlist[keep, :]
@@ -313,6 +330,7 @@ class LandmarkDetector(QtCore.QThread):
             # TODO: Figure out if this should be the new get_preds function
             pts, pts_img = get_preds_fromhm(output, center, scale)
 
+            frames_processed += len(sequence)
             # save everything in a DataFrame
             for f in range(len(sequence)):
                 datum = list()  # dict containing information for one frame
@@ -337,6 +355,7 @@ class LandmarkDetector(QtCore.QThread):
         return True
 
     def run(self):
+        self._running = True
         while self._running:
             if not self._video_queue.empty():
                 name, handler = self._video_queue.get()

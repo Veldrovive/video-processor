@@ -532,6 +532,9 @@ class MetricGraphWindow(QtWidgets.QMainWindow):
         for metric_name, line in self._curr_lines.items():
             line.set_linestyle("None")
         for metric_name in self._active_metrics:
+            # TODO: Fix this patch for deleting metrics
+            if metric_name not in self._curr_lines:
+                continue
             line = self._curr_lines[metric_name]
             line.set_linestyle("-")
             metric = self.get_metric_by_name(metric_name)

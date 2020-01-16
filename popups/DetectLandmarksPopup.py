@@ -81,7 +81,7 @@ class DetectLandmarksWindow(QtWidgets.QMainWindow):
         if self._video is None or self._save_path is None:
             return False
         if self._detector is None:
-            self._detector = LandmarkDetector(num_frames=1)
+            self._detector = LandmarkDetector(num_frames=10)
             self._detector.frame_done_signal.connect(self.on_new_frame)
             self._detector.landmarks_complete_signal.connect(self.on_finished)
             self._detector.new_video_started_signal.connect(self.on_start)
@@ -113,6 +113,7 @@ class DetectLandmarksWindow(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot(str, pd.DataFrame)
     def on_finished(self, name: str, landmarks: pd.DataFrame):
         self.got_landmarks_signal.emit(name, landmarks)
+        self._detector.stop()
         self.close()
 
     @QtCore.pyqtSlot(int, float)

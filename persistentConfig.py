@@ -28,7 +28,7 @@ group_colors = {
 
 default_metrics = [
     DataHolders.Metric(
-        "Inter-Eye Distance",
+        "Inter-Canthil Distance",
         DataHolders.MetricType.LENGTH,
         [39, 42]
     ),

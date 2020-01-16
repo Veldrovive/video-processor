@@ -42,7 +42,7 @@ class VideoViewerWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super(VideoViewerWindow, self).__init__()
         self.setWindowTitle("Video Viewer")
-        self.config = persistentConfig.Config()
+        self.config = persistentConfig.Config(pickle_path="./config.p")
 
         self.main_Widget = QtWidgets.QWidget(self)
         self.setCentralWidget(self.main_Widget)
@@ -473,7 +473,7 @@ class VideoViewerWindow(QtWidgets.QMainWindow):
         :return: A DataFrame containing the landmarks if the file exists or an empty DataFrame
         """
         try:
-            landmarks = pd.read_csv(file)
+            landmarks = pd.read_csv(file, index_col=0)
         except Exception as e:
             # TODO: make this exception handling more specific
             landmarks = pd.DataFrame()
