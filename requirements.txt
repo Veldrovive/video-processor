@@ -2,8 +2,9 @@ numpy
 pandas
 PyQt5
 scipy
-opencv-python
+opencv-python-headless
 matplotlib
+matplotlib-backend-qtquick
 torch
 scikit-image
 tqdm
