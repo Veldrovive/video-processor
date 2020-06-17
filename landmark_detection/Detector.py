@@ -43,6 +43,8 @@ class LandmarkDetectorV2(QtCore.QThread):
     _face_alignment_net: FAN = None
     _face_detector_net: s3fd = None
 
+    _errors: List[str] = []
+
     frame_done_signal = QtCore.pyqtSignal(int, float)
     landmarks_complete_signal = QtCore.pyqtSignal(str, pd.DataFrame)
     new_video_started_signal = QtCore.pyqtSignal(str)
@@ -65,17 +67,26 @@ class LandmarkDetectorV2(QtCore.QThread):
         self._device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 
         # Initialize Face Detection
-        self._face_alignment_net = FAN(self._network_size)
-        self.load_weights(self._face_alignment_net, self.FAN_model_path)
-        self._face_alignment_net.to(self._device)
-        self._face_alignment_net.eval()
+        try:
+            self._face_alignment_net = FAN(self._network_size)
+            self.load_weights(self._face_alignment_net, self.FAN_model_path)
+            self._face_alignment_net.to(self._device)
+            self._face_alignment_net.eval()
+        except AttributeError:
+            self._errors.append("Failed to load FAN weights. Did you load them into the project?")
 
         # Initialize Landmark Localization
-        self._face_detector_net = s3fd()
-        self.load_weights(self._face_detector_net, self.detector_model_path)
-        self._face_detector_net.to(self._device)
-        self._face_detector_net.eval()
-        self._face_detector_net.reference_scale = 195
+        try:
+            self._face_detector_net = s3fd()
+            self.load_weights(self._face_detector_net, self.detector_model_path)
+            self._face_detector_net.to(self._device)
+            self._face_detector_net.eval()
+            self._face_detector_net.reference_scale = 195
+        except AttributeError:
+            self._errors.append("Failed to load s3fd weights. Did you load them into the project")
+
+    def has_errored(self):
+        return len(self._errors) > 0, self._errors
 
     def load_weights(self, model: Union[FAN, s3fd], filename: str) -> bool:
         sd = torch.load(filename, map_location=lambda storage, loc: storage)
@@ -366,7 +377,6 @@ class LandmarkDetectorV2(QtCore.QThread):
             cap = cv2.VideoCapture(video)
             if cap is None or not cap.isOpened():
                 continue
-            print("Running detector on:", video)
             self.new_video_started_signal.emit(video)
             landmarks = self.find_landmarks(cap, frames=frames, number_of_frames=self._num_parallel_frames)
             self.landmarks_complete_signal.emit(video, landmarks)

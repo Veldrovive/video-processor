@@ -5,6 +5,6 @@ scipy
 opencv-python-headless
 matplotlib
 matplotlib-backend-qtquick
-torch
+torch==1.2.0
 scikit-image
 tqdm

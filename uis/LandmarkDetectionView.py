@@ -14,6 +14,8 @@ class FileListModel(QtCore.QAbstractListModel):
 
     FileNameRole = QtCore.Qt.UserRole + 1
 
+    detector: LandmarkDetector
+
     @property
     def files(self):
         try:
@@ -283,10 +285,18 @@ class LandmarkDetectionHandler(WindowHandler):
 
     @QtCore.pyqtSlot(name="detect")
     def detect(self):
-        detector = LandmarkDetector(self.get_frames_map())
-        detector.frame_done_signal.connect(self.on_frame_done)
-        detector.landmarks_complete_signal.connect(self.on_video_done)
-        detector.inference_done_signal.connect(self.on_inference_finished)
-        detector.start()
+        try:
+            self.detector = LandmarkDetector(self.get_frames_map())
+            has_errored, errors = self.detector.has_errored()
+            if has_errored:
+                message = f"Errors ({len(errors)}):\n" + "\n".join(errors)
+                self.send_message(message)
+            else:
+                self.detector.frame_done_signal.connect(self.on_frame_done)
+                self.detector.landmarks_complete_signal.connect(self.on_video_done)
+                self.detector.inference_done_signal.connect(self.on_inference_finished)
+                self.detector.start()
+        except Exception as err:
+            print("Failed to detect: ", err)
 
 

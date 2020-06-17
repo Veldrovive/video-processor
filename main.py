@@ -3,6 +3,8 @@ import pandas as pd
 import cv2
 import time
 
+import pkg_resources.py2_warn
+
 from PyQt5 import QtWidgets, QtGui, QtCore, QtQuick
 from PyQt5.QtQml import qmlRegisterType
 from matplotlib_backend_qtquick.backend_qtquickagg import FigureCanvasQtQuickAgg

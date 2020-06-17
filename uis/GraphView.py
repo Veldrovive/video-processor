@@ -352,6 +352,8 @@ class GraphViewHandlerV2(WindowHandler):
     fileChange = pyqtSignal(str, arguments=["fileName"])
     progressChanged = pyqtSignal(float, arguments=["progress"])
 
+    calculator: MetricCalc
+
     def __init__(self, engine):
         self._display_bridge = DisplayBridge()
         self._display_bridge.gotNormalization.connect(lambda value: self.got_normalization_value(value))
@@ -397,10 +399,10 @@ class GraphViewHandlerV2(WindowHandler):
         landmarks = self._glo.curr_landmarks
         if landmarks is not None:
             self.progressChanged.emit(0)
-            calc = MetricCalc()
-            calc.frameDoneSignal.connect(lambda _, progress: self.progressChanged.emit(progress))
-            calc.metricsCompleteSignal.connect(self.set_data)
-            calc.start()
+            self.calculator = MetricCalc()
+            self.calculator.frameDoneSignal.connect(lambda _, progress: self.progressChanged.emit(progress))
+            self.calculator.metricsCompleteSignal.connect(self.set_data)
+            self.calculator.start()
 
     def set_data(self, metrics: pd.DataFrame):
         print("Finished getting metrics")

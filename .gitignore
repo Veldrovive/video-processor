@@ -59,6 +59,7 @@ venv.bak/
 
 # IDEs
 .idea/
+.vscode/
 
 # Project Specific
 movement_analysis
