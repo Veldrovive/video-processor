@@ -225,11 +225,12 @@ ApplicationWindow {
 
             Button {
                 id: addFanButton
-                text: qsTr("Add FAN Model")
+                text: handler.hasFan ? qsTr("Add Another FAN Model") : qsTr("Add FAN Model")
                 anchors.left: addFileButton.right
                 anchors.leftMargin: 3
                 anchors.top: addFileButton.top
                 anchors.topMargin: 0
+                anchors.bottom: addFanButton.bottom
 
                 onClicked: {
                     addFanDialog.open()
@@ -238,7 +239,7 @@ ApplicationWindow {
 
             Button {
                 id: button1
-                text: qsTr("Add s3fd Model")
+                text: handler.hasS3fd ? qsTr("Add Another s3fd Model") : qsTr("Add s3fd Model")
                 anchors.left: addFanButton.right
                 anchors.leftMargin: 3
                 anchors.top: addFileButton.top

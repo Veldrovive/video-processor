@@ -118,12 +118,26 @@ class FileListModel(QtCore.QAbstractListModel):
 class ProjectHandler(WindowHandler):
     _glo: Globals
 
-    project: DataHolders.Project
+    project: DataHolders.Project = None
 
     file_list_model: FileListModel
 
     projectNameChanged = QtCore.pyqtSignal(str, arguments=['projectName'])
     projectOpened = QtCore.pyqtSignal(str, arguments=["projectName"])
+
+    fanAdded = QtCore.pyqtSignal()
+    def has_fan(self):
+        if self.project is None:
+            return False
+        return self.project.get_FAN_path() is not None
+    hasFan = QtCore.pyqtProperty(bool, has_fan, notify=fanAdded)
+
+    s3fdAdded = QtCore.pyqtSignal()
+    def has_s3fd(self):
+        if self.project is None:
+            return False
+        return self.project.get_s3fd_path() is not None
+    hasS3fd = QtCore.pyqtProperty(bool, has_s3fd, notify=s3fdAdded)
 
     def __init__(self, engine: QtQuick.QQuickView):
         self.file_list_model = FileListModel()
@@ -145,6 +159,8 @@ class ProjectHandler(WindowHandler):
         self.set_title(f"Editing Project: {project.name}")
         self.project = project
         self.setup_project()
+        self.fanAdded.emit()
+        self.s3fdAdded.emit()
 
     def show(self):
         """Overrides the show method to check if a save location is found"""
@@ -279,10 +295,12 @@ class ProjectHandler(WindowHandler):
     @QtCore.pyqtSlot(str, name="addFanModel")
     def add_fan_model(self, path: str):
         self.project.add_FAN(path)
+        self.fanAdded.emit()
 
     @QtCore.pyqtSlot(str, name="addS3fdModel")
     def add_s3fd_model(self, path: str):
         self.project.add_s3fd(path)
+        self.s3fdAdded.emit()
 
     @QtCore.pyqtSlot(name="onFinish")
     @QtCore.pyqtSlot(str, name="onFinish")
