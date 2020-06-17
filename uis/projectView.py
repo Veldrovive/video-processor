@@ -200,6 +200,12 @@ class ProjectHandler(WindowHandler):
         """
         if len(self.project.name) < 1:
             return "Project must have a name"
+        if len(self.file_list_model.files) < 1:
+            return "Project must have files in it"
+        if self.project.get_FAN_path() is None:
+            return "Project must have a FAN model"
+        if self.project.get_s3fd_path() is None:
+            return "Project must have a s3fd facial alignment model"
         if save_dir is None:
             return "Project must have a save location"
         if not os.path.isdir(save_dir):
