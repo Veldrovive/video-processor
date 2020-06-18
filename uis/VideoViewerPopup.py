@@ -199,9 +199,13 @@ class VideoViewerWindowV2(QtWidgets.QMainWindow):
                         status_tip="Load video file, accepted formats : .mp4, .avi, .mov",
                         callback=self.open_project_dir)
         self.add_action("&File", "Next Video",
-                        shortcut="Ctrl+N",
                         status_tip="Move to the next video in the project",
+                        icon="./icons/forward.svg",
                         callback=lambda: self.glo.select_file(self.glo.curr_file_index + 1))
+        self.add_action("&File", "Previous Video",
+                        status_tip="Move to the previous video in the project",
+                        icon="./icons/back.svg",
+                        callback=lambda: self.glo.select_file(self.glo.curr_file_index - 1))
         self.add_action("&File", "Quit",
                         shortcut="Ctrl+Q",
                         status_tip="Quit the program",
@@ -288,9 +292,9 @@ class VideoViewerWindowV2(QtWidgets.QMainWindow):
         Initializes the frame's bottom bar
         """
         self.frame_label = QtWidgets.QLabel('')
-        self.frame_label.setFont(QtGui.QFont("Times", 10))
+        self.frame_label.setFont(QtGui.QFont("Times", 14))
         self.statusbar_bottom = QtWidgets.QStatusBar()
-        self.statusbar_bottom.setFont(QtGui.QFont("Times", 10))
+        self.statusbar_bottom.setFont(QtGui.QFont("Times", 14))
         self.statusbar_bottom.addPermanentWidget(self.frame_label)
 
     def setup_toolbars(self):
@@ -303,6 +307,9 @@ class VideoViewerWindowV2(QtWidgets.QMainWindow):
         self.toolBar_Bottom = QtWidgets.QToolBar(self)
 
         self.toolBar_Top.addActions(([self.actions["Take Snapshot"]]))
+        self.toolBar_Top.addActions(([self.actions["Previous Video"]]))
+        self.toolBar_Top.addActions(([self.actions["Next Video"]]))
+
         self.toolBar_Top.setIconSize(QtCore.QSize(50, 50))
         for action in self.toolBar_Top.actions():
             widget = self.toolBar_Top.widgetForAction(action)

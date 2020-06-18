@@ -65,8 +65,8 @@ class KeypointListModel(QtCore.QAbstractListModel):
     def is_checked(self, index):
         return index in self.checked_keypoint_indexes
 
-    def update_checked_indexes(self, indexes):
-        self.checked_keypoint_indexes = [index for index, keypoint in enumerate(self.curr_keypoints) if keypoint in indexes]
+    def update_unchecked_indexes(self, indexes):
+        self.checked_keypoint_indexes = [index for index, keypoint in enumerate(self.curr_keypoints) if keypoint not in indexes]
 
     def data(self, index, role=None):
         row = index.row()
@@ -127,6 +127,7 @@ class LandmarkDetectionHandler(WindowHandler):
     progressChanged = QtCore.pyqtSignal(float, arguments=["progress"])
 
     def __init__(self, engine: QtQuick.QQuickView):
+        # These models are declared first since they are used by setup_contexts() which is called by the super constructor
         self.file_list_model = FileListModel()
         self.keypoint_list_model = KeypointListModel()
         super().__init__(engine, "uis/LandmarkDetectionView.qml",
@@ -164,7 +165,7 @@ class LandmarkDetectionHandler(WindowHandler):
             for file in self._glo.project.files:
                 if file not in self.frames_map:
                     self.frames_map[file] = {
-                        'frames': set(),
+                        'excluded_frames': set(),
                         'full_video': False,
                         'text_range': None
                     }
@@ -176,7 +177,7 @@ class LandmarkDetectionHandler(WindowHandler):
             keypoints = self._glo.video_config.key_points[self.file]
             keypoints.sort()
             self.keypoint_list_model.reset(keypoints[1:-1])
-            self.keypoint_list_model.update_checked_indexes(self.frames_map[self.file]['frames'])
+            self.keypoint_list_model.update_unchecked_indexes(self.frames_map[self.file]['excluded_frames'])
             self._list_view.currentIndex = index
             self.videoChanged.emit()
             self._glo.select_file(self.file)
@@ -186,14 +187,14 @@ class LandmarkDetectionHandler(WindowHandler):
     @QtCore.pyqtSlot(int, bool, name="setFileKeypoint")
     def set_file_keypoint(self, keypoint_index: int, state: bool):
         key_frame = self.keypoint_list_model.curr_keypoints[keypoint_index]
-        if state:
-            self.frames_map[self.file]['frames'].add(key_frame)
+        if not state:
+            self.frames_map[self.file]['excluded_frames'].add(key_frame)
         else:
             try:
-                self.frames_map[self.file]['frames'].remove(key_frame)
+                self.frames_map[self.file]['excluded_frames'].remove(key_frame)
             except KeyError:
                 pass
-        self.keypoint_list_model.update_checked_indexes(self.frames_map[self.file]['frames'])
+        self.keypoint_list_model.update_unchecked_indexes(self.frames_map[self.file]['excluded_frames'])
         self.numFramesChanged.emit()
 
     @QtCore.pyqtSlot(bool, name="setFullVideo")
@@ -250,7 +251,10 @@ class LandmarkDetectionHandler(WindowHandler):
                 full_frames.update(frames)
                 # if err:
                 #     self.send_message("Your range has a syntax error.\nAn example of the correct format is 1-10, 12, 14, 30-40")
-            full_frames.update(config['frames'])
+            keypoints = self._glo.video_config.key_points[file]
+            keypoints.sort()
+            keypoint_frames = [frame for frame in keypoints[1:-1] if frame not in config['excluded_frames']]
+            full_frames.update(keypoint_frames)
             frame_map[file] = set(sorted(full_frames))
         return frame_map
 

@@ -11,6 +11,7 @@ from matplotlib_backend_qtquick.backend_qtquickagg import FigureCanvasQtQuickAgg
 from uis.projectView import ProjectHandler
 from uis.GraphView import GraphViewHandlerV2 as GraphViewHandler
 from uis.LandmarkDetectionView import LandmarkDetectionHandler
+from uis.RetrainerView import RetrainerView
 from utils.Globals import Globals
 from utils import DataHolders
 
@@ -28,6 +29,7 @@ class MainWindow(VideoViewerWindow):
         self.setup_graph_window()
         self.setup_project_window()
         self.setup_detection_view()
+        self.setup_retrainer_view()
 
     def setup_graph_window(self):
         # window: MetricGraphWindow = self.add_window("graph_metrics", MetricGraphWindow)
@@ -71,6 +73,15 @@ class MainWindow(VideoViewerWindow):
 
     def detect_landmarks(self):
         window: LandmarkDetectionHandler = self.get_window("detection_handler")
+        window.show()
+
+    def setup_retrainer_view(self):
+        self.add_window("retraining_handler", RetrainerView)
+        self.add_action("&Landmarks", "Retrain FAN",
+                        callback=lambda: self.open_retrain())
+
+    def open_retrain(self):
+        window: RetrainerView = self.get_window("retraining_handler")
         window.show()
 
     @QtCore.pyqtSlot(str, pd.DataFrame)

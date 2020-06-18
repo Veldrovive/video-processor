@@ -349,6 +349,8 @@ class ImageViewerV2(QtWidgets.QGraphicsView):
 
     _lifted_point: Optional[int] = None
 
+    _curr_frame: Optional[np.ndarray] = None
+
     def __init__(self):
         super(ImageViewerV2, self).__init__()
         self._glo = Globals.get()
@@ -415,7 +417,7 @@ class ImageViewerV2(QtWidgets.QGraphicsView):
         """
         if not self._glo.ready():
             return None
-        return self._frame_buffer.get_marked_frame()
+        return self._curr_frame
 
     @QtCore.pyqtSlot(object, name="DisplayNewFrame")
     def on_new_frame(self, frame_info: Optional[Tuple[int, np.ndarray, Optional[np.ndarray]]]) -> bool:
@@ -426,6 +428,7 @@ class ImageViewerV2(QtWidgets.QGraphicsView):
         frame = marked_frame if marked_frame is not None else frame
         self.frame_change_signal.emit(frame_num)
         self.set_display(frame)
+        self._curr_frame = frame
         if self._resize_on_get_frame:
             self.fitInView()
             self._resize_on_get_frame = False
@@ -635,6 +638,8 @@ class ImageViewerV2(QtWidgets.QGraphicsView):
         Called on clicks. Handles actions taken when a user is creating a metric
         :param mouse_pos: The position of the click
         """
+        if self._glo.curr_landmarks is None:
+            return False
         frame_num = self._frame_buffer.get_frame_num()
         if self._mode == DataHolders.InteractionMode.POINT:
             selected_landmark = self._glo.curr_landmarks.get_nearest_point(frame_num, mouse_pos)

@@ -279,7 +279,6 @@ class ProjectHandler(WindowHandler):
         Catches when a new save location has been set
         :param save_dir: The path to the new save location
         """
-        print("Changing save dir")
         if len(save_dir) == 0 and self.project.save_loc is None:
             # Then the project is invalid
             self.send_message("A new project must have a save location", self.hide)
