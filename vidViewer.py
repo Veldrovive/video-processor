@@ -249,8 +249,12 @@ class FrameBufferV2(QtCore.QThread):
         if abs(delta) <= self._buffer_radius:
             # Then the new frame is in the buffer so we should immediately emit
             # it in order to have a stable frame rate
-            self.new_frame_signal.emit(self._buffer[delta+self._buffer_radius])
-            self._curr_frame = self._target_frame
+            try:
+                self.new_frame_signal.emit(self._buffer[delta+self._buffer_radius])
+                self._curr_frame = self._target_frame
+            except TypeError:
+                # This can error if it tries to emit a frame it doesnt have
+                pass
 
         start = 0
         read_num = 0

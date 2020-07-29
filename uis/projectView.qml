@@ -6,7 +6,7 @@ ApplicationWindow {
     id: main
     flags: Qt.WindowStaysOnTopHint
     objectName: "window"
-    width: 640
+    width: 880
     height: 480
 
     FileDialog {
@@ -214,39 +214,12 @@ ApplicationWindow {
             Button {
                 id: addFileButton
                 objectName: "add_file_button"
-                text: qsTr("Add File")
+                text: qsTr("Add Files")
                 anchors.left: parent.left
                 anchors.leftMargin: 0
                 onClicked: {
                     fileDialog.visible = true
                     fileDialog.open()
-                }
-            }
-
-            Button {
-                id: addFanButton
-                text: handler.hasFan ? qsTr("Add Another FAN Model") : qsTr("Add FAN Model")
-                anchors.left: addFileButton.right
-                anchors.leftMargin: 3
-                anchors.top: addFileButton.top
-                anchors.topMargin: 0
-                anchors.bottom: addFanButton.bottom
-
-                onClicked: {
-                    addFanDialog.open()
-                }
-            }
-
-            Button {
-                id: button1
-                text: handler.hasS3fd ? qsTr("Add Another s3fd Model") : qsTr("Add s3fd Model")
-                anchors.left: addFanButton.right
-                anchors.leftMargin: 3
-                anchors.top: addFileButton.top
-                anchors.topMargin: 0
-
-                onClicked: {
-                    addS3fdDialog.open()
                 }
             }
 
@@ -269,7 +242,7 @@ ApplicationWindow {
     Connections {
         target: handler
 
-        onProjectNameChanged: {
+        function onProjectNameChanged(projectName) {
             if(projectName !== ""){
                 title.text = "Project: " + projectName
             }else{
@@ -277,7 +250,7 @@ ApplicationWindow {
             }
         }
 
-        onProjectOpened: {
+        function onProjectOpened(projectName) {
             projectNameInput.text = projectName
         }
     }

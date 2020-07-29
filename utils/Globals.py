@@ -32,7 +32,7 @@ class Globals(QtWidgets.QWidget):
 
     project: DataHolders.Project = None
     metrics: DataHolders.MetricContainer = None
-    curr_landmarks: DataHolders.Landmarks = None
+    curr_landmarks: Optional[DataHolders.Landmarks] = None
     curr_file: str = None
     curr_file_index: int = None
     curr_landmark_file = None
@@ -41,12 +41,15 @@ class Globals(QtWidgets.QWidget):
     # Configs
     configs: Dict[str, DataHolders.Config] = {
                 "visual_config": DataHolders.VisualConfig,
-                "video_config": DataHolders.VideoConfig
+                "video_config": DataHolders.VideoConfig,
+                "model_config": DataHolders.ModelConfig
                }
     visual_config: DataHolders.VisualConfig = None
     visual_config_path: str
     video_config: DataHolders.VideoConfig = None
     video_config_path: str
+    model_config: DataHolders.ModelConfig = None
+    model_config_path: str
 
     # Signals do not have a reference to the changed object since leeches are
     # intended to only access globals through the globals object
@@ -86,9 +89,9 @@ class Globals(QtWidgets.QWidget):
         """
         for (name, c_type) in self.configs.items():
             try:
-                self.__dict__[name] = c_type(self.__dict__[name+"_path"])
+                self.__dict__[name] = c_type(self.__dict__[name+"_path"], glo=self)
             except ValueError:
-                self.__dict__[name] = c_type()
+                self.__dict__[name] = c_type(glo=self)
                 self.__dict__[name].set_save_loc(self.__dict__[name+"_path"])
                 self.__dict__[name].on_change()
             self.__dict__[name].onChangeSignal.connect(self.get_config_change_interaction(name))
@@ -178,6 +181,9 @@ class Globals(QtWidgets.QWidget):
         self.metrics.metricChangedSignal.connect(self.onMetricsChange.emit)
         self.onMetricsChange.emit()
 
+    def select_frame(self, frame: int):
+        self.video_config.seek_to(frame)
+
     def select_file(self, file_path: Union[str, int]):
         """Called to select a file in the current project"""
         if isinstance(file_path, int):
@@ -216,6 +222,7 @@ class Globals(QtWidgets.QWidget):
             # Load visual config. Maybe put this inside the project object?
             self.visual_config_path = os.path.join(self.project.config_dir, "visual_config.json")
             self.video_config_path = os.path.join(self.project.config_dir, "video_config.json")
+            self.model_config_path = os.path.join(self.project.config_dir, "model_config.json")
             self.load_config()
             self.load_metrics()
 

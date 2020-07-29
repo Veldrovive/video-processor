@@ -77,12 +77,18 @@ ApplicationWindow {
         anchors.left: parent.left
         anchors.leftMargin: 8
 
-        text: "Current File: " + fileBarNameRepeater.model[0].name
+        text: {
+            if (fileBarNameRepeater.model[0] !== undefined) {
+                return "Current File: " + fileBarNameRepeater.model[0].name;
+            } else {
+                return "Current File: None"
+            }
+        }
         font.pointSize: 18
 
         Connections {
             target: handler
-            onFileChange: {
+            function onFileChange(fileName) {
                 fileNameText.text = "Current File: " + fileName
             }
         }
@@ -170,7 +176,7 @@ ApplicationWindow {
 
             Connections {
                 target: handler
-                onNormalizationValueChanged: {
+                function onNormalizationValueChanged(value) {
                     normalizeOnSpin.setValue(value)
                 }
             }
@@ -200,7 +206,7 @@ ApplicationWindow {
 
         Connections {
             target: handler
-            onProgressChanged: {
+            function onProgressChanged(progress) {
                 progressBar.value = progress
             }
         }

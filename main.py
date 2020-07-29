@@ -32,18 +32,12 @@ class MainWindow(VideoViewerWindow):
         self.setup_retrainer_view()
 
     def setup_graph_window(self):
-        # window: MetricGraphWindow = self.add_window("graph_metrics", MetricGraphWindow)
-        # self.add_action("&Metrics", "Analyze Metrics",
-        #                 shortcut="Ctrl+Shift+S",
-        #                 status_tip="Show Metrics",
-        #                 callback=lambda: self.populate_graph())
-        # window.select_frame_signal.connect(self.viewer.seek_frame)
         window: GraphViewHandler = self.add_window("graph_handler", GraphViewHandler)
-        self.add_action("&Metrics", "Analyze Metrics",
-                        shortcut="Ctrl+Shift+S",
+        self.add_action("&Analysis", "Analyze Metrics",
+                        shortcut="Ctrl+a",
                         status_tip="Show Metrics",
                         callback=lambda: self.populate_graph())
-        # window.select_frame_signal.connect(self.viewer.seek_frame)
+        self.add_menu_seperator("&Analysis")
 
     def populate_graph(self):
         graph_window: GraphViewHandler = self.get_window("graph_handler")
@@ -53,8 +47,10 @@ class MainWindow(VideoViewerWindow):
     def setup_project_window(self):
         window: ProjectHandler = self.add_window("project_handler", ProjectHandler)
         self.add_action("&File", "Edit Project",
+                        shortcut="Ctrl+e",
                         callback=lambda: self.edit_project())
         self.add_action("&File", "New Project",
+                        shortcut="Ctrl+n",
                         callback=lambda: self.new_project())
 
     def edit_project(self):
@@ -68,7 +64,8 @@ class MainWindow(VideoViewerWindow):
 
     def setup_detection_view(self):
         self.add_window("detection_handler", LandmarkDetectionHandler)
-        self.add_action("&Landmarks", "Detect Landmarks",
+        self.add_action("&Analysis", "Find Landmarks",
+                        shortcut="Ctrl+d",
                         callback=lambda: self.detect_landmarks())
 
     def detect_landmarks(self):
@@ -77,7 +74,8 @@ class MainWindow(VideoViewerWindow):
 
     def setup_retrainer_view(self):
         self.add_window("retraining_handler", RetrainerView)
-        self.add_action("&Landmarks", "Retrain FAN",
+        self.add_action("&Analysis", "Retrain",
+                        shortcut="Ctrl+r",
                         callback=lambda: self.open_retrain())
 
     def open_retrain(self):

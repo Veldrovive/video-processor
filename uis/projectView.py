@@ -168,7 +168,7 @@ class ProjectHandler(WindowHandler):
         if self._glo.project is not None and self.project is None:
             self.init_project()
         if self.project.save_loc is None:
-            self._save_loc_dialog.open()
+            self.send_message("Please choose or create an empty folder to store the project in. \nManually editing this folder can result in the project failing to open.", lambda: self._save_loc_dialog.open())
 
     def setup_contexts(self):
         """Overridden: Adds custom contexts"""
@@ -218,17 +218,13 @@ class ProjectHandler(WindowHandler):
             return "Project must have a name"
         if len(self.file_list_model.files) < 1:
             return "Project must have files in it"
-        if self.project.get_FAN_path() is None:
-            return "Project must have a FAN model"
-        if self.project.get_s3fd_path() is None:
-            return "Project must have a s3fd facial alignment model"
         if save_dir is None:
             return "Project must have a save location"
         if not os.path.isdir(save_dir):
             return "Save location must be a folder"
         failed_files = [path for path in os.listdir(save_dir) if path not in ["config", "data", "retraining_data", "models", "metric_output", "meta_data.csv", "video_data.csv"] and path[0] != "."]
         if len(failed_files) > 0:
-            return "Save location must be empty: " + str(failed_files)
+            return "Project has been manually edited. \nPlease remove the following files from the directory:" + str(failed_files)
         if os.path.isfile(os.path.join(save_dir, "meta_data.csv")):
             meta_df = pd.read_csv(os.path.join(save_dir, "meta_data.csv"))
             curr_id = self.project.id

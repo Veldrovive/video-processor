@@ -1,6 +1,7 @@
 import QtQuick 2.0
 import QtQuick.Controls 2.13
 import QtQuick.Dialogs 1.1
+import QtQuick.Layouts 1.15
 
 ApplicationWindow {
     id: main
@@ -16,278 +17,410 @@ ApplicationWindow {
     }
 
     Rectangle {
-        id: background
-        color: "#ecf0f1"
-        anchors.fill: parent
-    }
+        id: header
+        property var vertPadding: 5
 
-    Item {
-        id: container
-        anchors.rightMargin: 8
-        anchors.leftMargin: 8
-        anchors.bottomMargin: 8
-        anchors.topMargin: 8
-        anchors.fill: parent
+        color: "#34495e"
+        anchors.right: parent.right
+        anchors.left: parent.left
+        anchors.top: parent.top
+        height: childrenRect.height + header.vertPadding * 2
 
-        Rectangle {
-            id: titleBar
-            z: 3
-            color: "#34495e"
-            anchors.bottom: title.bottom
-            anchors.bottomMargin: -8
-            anchors.right: parent.right
-            anchors.rightMargin: -8
-            anchors.left: parent.left
-            anchors.leftMargin: -8
-            anchors.top: parent.top
-            anchors.topMargin: -8
-        }
 
         Text {
-            id: title
-            z: 4
-            objectName: "title"
-            text: qsTr("Detect Landmarks For:")
-            color: "#95a5a6"
-            height: 24
-            anchors.right: parent.right
-            anchors.rightMargin: 0
-            anchors.top: parent.top
-            anchors.topMargin: 0
+            id: headerText
+
             anchors.left: parent.left
             anchors.leftMargin: 10
-            font.pixelSize: 20
+            anchors.top: parent.top
+            anchors.topMargin: header.vertPadding
+
+            color: "#ecf0f1"
+            text: qsTr("Estimate Landmarks")
+            font.pointSize: 18
+        }
+    }
+
+    TabBar {
+        id: tabBar
+        width: parent.width
+        currentIndex: 0
+        anchors.top: header.bottom
+
+        TabButton {
+            text: qsTr("Detector")
         }
 
-        ListView {
-            id: listView
-            objectName: "listView"
-            anchors.bottom: summaryText.top
-            anchors.bottomMargin: 0
-            anchors.top: titleBar.bottom
-            anchors.topMargin: 10
-            anchors.right: parent.horizontalCenter
-            anchors.rightMargin: 0
-            anchors.left: parent.left
-            anchors.leftMargin: 0
+        TabButton {
+            text: qsTr("Settings")
+        }
+    }
 
-            model: fileListModel
-            currentIndex: -1
-            delegate: Rectangle {
-                id: itemRect
-                radius: 5
+    StackLayout {
+        id: mainContent
+        currentIndex: tabBar.currentIndex
+        anchors.top: tabBar.bottom
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+
+        Item {
+            id: detectorContent
+            anchors.fill: parent
+            anchors.margins: 8
+
+            Text {
+                id: videosLabel
+                anchors.top: parent.top
                 anchors.left: parent.left
-                anchors.right: parent.right
-                color: {
-                    if(ListView.isCurrentItem){
-                        return "#95a5a6"
-                    }
-                    return state == "HOVER" ? "#bdc3c7" : "#ecf0f1"
-                }
-                height: 26
+                anchors.leftMargin: 4
 
-                Text {
-                    text: qsTr(fileName)
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.left: parent.left
-                    anchors.leftMargin: 3
-                }
+                text: qsTr("Videos:")
+            }
 
-                states: [
-                    State {
-                        name: "NORMAL"
-                    },
-                    State {
-                        name: "HOVER"
-                    }
-                ]
+            Frame {
+                anchors.left: parent.left
+                anchors.top: videosLabel.bottom
+                anchors.bottom: progressBar.top
+                anchors.bottomMargin: 3
+                anchors.right: parent.horizontalCenter
+                padding: 1
 
-                MouseArea {
-                    id: mouse_area1
-                    z: 1
-                    hoverEnabled: true
+                ScrollView {
+                    id: videoSelector
                     anchors.fill: parent
+                    clip: true
+                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
-                    onClicked: {
-                        itemRect.ListView.view.currentIndex = index;
-                        handler.getVideoData(index)
-                    }
+                    ListView {
+                        id: videosList
+                        anchors.fill: parent
 
-                    onEntered: {
-                        parent.state = "HOVER"
-                    }
+                        model: handler.videos_list
 
-                    onExited: {
-                        parent.state = "NORMAL"
+                        delegate: MouseArea {
+                            height: 36
+                            width: videosList.width
+                            id: videoMouseArea
+
+                            Rectangle {
+                                id: videoBox
+                                anchors.fill: parent
+                                property string videoName: handler.videos_list[index].name
+
+                                color: {
+                                    let color = "#ecf0f1"
+                                    if (index % 2 === 0) color = "#95a5a6";
+                                    if (handler.curr_video_index === index) color = "#7d8b8c";
+                                    return color;
+                                }
+
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 3
+                                    text: qsTr(videoBox.videoName)
+                                }
+                            }
+
+                            onClicked: {
+                                handler.curr_video_index = index;
+                            }
+                        }
                     }
                 }
             }
-        }
 
-        CheckBox {
-            id: fullVideoCheck
-            text: qsTr("Detect Full Video")
-            font.pointSize: 14
-            anchors.top: titleBar.bottom
-            anchors.topMargin: 10
-            anchors.left: parent.horizontalCenter
-            anchors.leftMargin: 0
-
-            onToggled: {
-                handler.setFullVideo(checked)
-            }
-        }
-
-        ListView {
-            id: keyPointList
-            anchors.top: keyframesLabel.bottom
-            anchors.topMargin: 3
-            anchors.bottom: summaryText.top
-            anchors.bottomMargin: 0
-            anchors.right: parent.right
-            anchors.rightMargin: 0
-            anchors.left: parent.horizontalCenter
-            anchors.leftMargin: 0
-
-            model: keypointListModel
-            delegate: Item {
-                anchors.left: parent.left
+            Frame {
+                anchors.left: parent.horizontalCenter
+                anchors.top: videosLabel.bottom
+                anchors.bottom: progressBar.top
+                anchors.bottomMargin: 3
                 anchors.right: parent.right
-
-                height: 32
-
+                padding: 1
 
                 CheckBox {
-                    id: keypointCheckbox
+                    id: fullVideoCheckbox
+                    anchors.top: parent.top
                     anchors.left: parent.left
-                    height: 32
-                    checked: {
-                        return keypointListModel.isChecked(index);
+
+                    enabled: {
+                        return handler.curr_video_index >= 0;
                     }
 
-                    onToggled: {
-                        handler.setFileKeypoint(index, keypointCheckbox.checked)
+                    checked: {
+                        return handler.curr_all_frames;
                     }
+
+                    font.pointSize: 14
+                    text: qsTr("Full Video")
+
+                    onToggled: {
+                        handler.curr_all_frames = checked;
+                    }
+                }
+
+                Item {
+                    id: chooseRangeContainer
+                    anchors.top: fullVideoCheckbox.bottom
+                    anchors.left: parent.left
+                    height: 36
+
+                    Text {
+                        id: chooseRangeLabel
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.verticalCenter: parent.verticalCenter
+                        verticalAlignment: Text.AlignVCenter
+                        text: qsTr("Choose a range:")
+                    }
+
+                    TextField {
+                        id: chooseRangeTextbox
+                        anchors.left: chooseRangeLabel.right
+                        anchors.top: parent.top
+                        anchors.verticalCenter: parent.verticalCenter
+                        placeholderText: qsTr("1-10, 20-30")
+
+                        enabled: {
+                            return handler.curr_video_index >= 0 && !handler.curr_all_frames;
+                        }
+
+                        text: {
+                            if (enabled) {
+                                return handler.curr_some_frames;
+                            }
+                            return '';
+                        }
+
+                        onEditingFinished: {
+                            focus = false;
+                            handler.curr_some_frames = text;
+                        }
+                    }
+                }
+
+                Rectangle {
+                    id: seperator
+                    color: "#c5d2e3"
+                    anchors.left: parent.left
+                    anchors.leftMargin: 5
+                    anchors.topMargin: 8
+                    anchors.right: parent.right
+                    anchors.rightMargin: 5
+                    height: 1
+                    anchors.top: chooseRangeContainer.bottom
+                    anchors.bottomMargin: 8
                 }
 
                 Text {
-                    text: keypoint
-                    anchors.left: keypointCheckbox.right
+                    id: keypointSelectorLabel
+                    anchors.top: seperator.bottom
+                    anchors.left: parent.left
+                    anchors.topMargin: 8
                     anchors.leftMargin: 3
-                    anchors.verticalCenter: parent.verticalCenter
+
+                    text: qsTr("Keypoints:")
+                }
+
+                Button {
+                    id: toggleKeypointsButton
+                    anchors.top: keypointSelectorLabel.top
+                    anchors.left: keypointSelectorLabel.right
+                    anchors.leftMargin: 3
+                    height: 16
+
+                    text: qsTr("Toggle All Keypoints")
+
+                    enabled: {
+                        return handler.curr_video_index >= 0 && !handler.curr_all_frames;
+                    }
+
+                    onClicked: {
+                        handler.toggle_all_keypoints()
+                    }
+                }
+
+                ScrollView {
+                    id: keypointsSelector
+                    clip: true
+                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.top: keypointSelectorLabel.bottom
+                    anchors.topMargin: 3
+
+                    ListView {
+                        id: keypointsList
+                        anchors.fill: parent
+
+                        model: handler.curr_keypoints
+
+                        delegate: MouseArea {
+                            height: 36
+                            width: videosList.width
+                            id: keypointMouseArea
+
+                            Rectangle {
+                                id: keypointBox
+                                anchors.fill: parent
+                                property int frame: handler.curr_keypoints[index]["frame"]
+                                property bool active: handler.curr_keypoints[index]["active"]
+
+                                color: {
+                                    let color = "#ecf0f1"
+                                    if (index % 2 === 0) color = "#95a5a6";
+                                    return color;
+                                }
+
+                                CheckBox {
+                                    id: keypointCheckbox
+                                    anchors.left: parent.left
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.leftMargin: 3
+
+                                    enabled: {
+                                        return handler.curr_video_index >= 0 && !handler.curr_all_frames;
+                                    }
+
+                                    checked: {
+                                        return keypointBox.active && enabled
+                                    }
+
+                                    onToggled: {
+                                        handler.set_keypoint_active(keypointBox.frame, keypointCheckbox.checked);
+                                    }
+                                }
+
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.left: keypointCheckbox.right
+                                    anchors.leftMargin: 3
+                                    text: qsTr((keypointBox.frame + 1).toString())
+                                }
+                            }
+
+                            onClicked: {
+                                handler.go_to_frame(keypointBox.frame)
+                            }
+                        }
+                    }
+                }
+            }
+
+            ProgressBar {
+                id: progressBar
+                value: 0
+                anchors.bottom: detectButton.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottomMargin: 4
+
+                Connections {
+                    target: handler
+
+                    function onProgressChanged(progress) {
+                        progressBar.value = progress
+                    }
+                }
+            }
+
+            Button {
+                id: detectButton
+                anchors.bottom: parent.bottom
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: qsTr("Run Detection")
+
+                enabled: {
+                    console.log(handler.detecting)
+                    !handler.detecting
+                }
+
+                onClicked: {
+                    handler.detect();
+                }
+            }
+
+            Text {
+                id: totalFramesLabel
+                anchors.verticalCenter: detectButton.verticalCenter
+                anchors.left: parent.left
+
+                text: {
+                    return `Total Frames: ${handler.total_frames}`
                 }
             }
         }
 
-        Text {
-            id: summaryText
+        Item {
+            id: settingsContent
+            anchors.fill: parent
+            anchors.margins: 8
 
-            anchors.left: parent.left
-            anchors.rightMargin: 3
-            anchors.right: detectButton.left
-            anchors.bottom: progressBar.top
-            anchors.top: detectButton.top
+            Text {
+                id: modelSectionLabel
+                anchors.left: parent.left
+                anchors.top: parent.top
 
-            text: qsTr("Num Frames:")
-            anchors.bottomMargin: 3
-            verticalAlignment: Text.AlignVCenter
-            font.pixelSize: 12
-        }
-
-        Button {
-            id: detectButton
-
-            anchors.right: parent.right
-            anchors.bottom: progressBar.top
-
-            text: qsTr("Detect")
-            anchors.bottomMargin: 3
-
-            onClicked: {
-                handler.detect()
+                text: qsTr("Select Model: ")
+                font.pointSize: 14
+                font.bold: true
             }
-        }
 
-        Text {
-            id: rangeChooseText
-            text: qsTr("Choose a range:")
-            verticalAlignment: Text.AlignVCenter
-            anchors.bottom: rangeChooser.bottom
-            anchors.bottomMargin: 0
-            anchors.left: parent.horizontalCenter
-            anchors.leftMargin: 0
-            anchors.top: rangeChooser.top
-            anchors.topMargin: 0
-            font.pixelSize: 14
-        }
+            Text {
+                id: modelNameLabel
+                anchors.left: parent.left
+                anchors.verticalCenter: modelNameChooser.verticalCenter
 
-        TextField {
-            id: rangeChooser
-            anchors.top: fullVideoCheck.bottom
-            anchors.topMargin: 5
-            anchors.left: rangeChooseText.right
-            anchors.leftMargin: 10
-            placeholderText: qsTr("1-10, 20-30")
-
-            onEditingFinished: {
-                handler.setFrameRange(text)
+                text: qsTr("Model Name:")
             }
-        }
 
+            ComboBox {
+                id: modelNameChooser
+                anchors.left: modelNameLabel.right
+                anchors.leftMargin: 3
+                anchors.top: modelSectionLabel.bottom
+                anchors.topMargin: 4
 
-        ProgressBar {
-            id: progressBar
-            objectName: "progressBar"
-            anchors.left: parent.left
-            anchors.leftMargin: 0
-            anchors.right: parent.right
-            anchors.rightMargin: 0
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: 0
-            value: 0
-        }
+                currentIndex: {
+                    return find(handler.model_name)
+                }
 
+                model: handler.model_names
 
-        Text {
-            id: keyframesLabel
-            text: qsTr("Key Frames:")
-            z: 3
-            anchors.left: parent.horizontalCenter
-            anchors.leftMargin: 0
-            anchors.top: rangeChooseText.bottom
-            anchors.topMargin: 3
-            font.pixelSize: 14
-
-            Rectangle {
-                z: -1
-                id: rectangle
-                color: "#ecf0f1"
-                anchors.bottomMargin: -3
-                anchors.topMargin: -14
-                anchors.fill: parent
+                onActivated: {
+                    handler.set_model_name(currentText)
+                }
             }
-        }
-    }
 
-    Connections {
-        target: handler
+            Text {
+                id: modelVersionLabel
+                anchors.left: modelNameChooser.right
+                anchors.leftMargin: 8
+                anchors.verticalCenter: modelVersionChooser.verticalCenter
 
-        onProjectChanged: {
-            console.log("Project Changed", handler.project_name)
-            title.text = "Detect Landmarks For: <b>" + handler.project_name + "</b>"
-        }
+                text: qsTr("Model Version:")
+            }
 
-        onVideoChanged: {
-            fullVideoCheck.checked = handler.curr_full_video_state
-            rangeChooser.text = handler.curr_video_range_state
-        }
+            ComboBox {
+                id: modelVersionChooser
+                anchors.left: modelVersionLabel.right
+                anchors.leftMargin: 3
+                anchors.top: modelSectionLabel.bottom
+                anchors.topMargin: 4
 
-        onNumFramesChanged: {
-            summaryText.text = "Num Frames: " + handler.total_frames
-        }
+                currentIndex: {
+                    return find(handler.model_version)
+                }
 
-        onProgressChanged: {
-            progressBar.value = progress
+                model: handler.model_versions
+
+                onActivated: {
+                    handler.set_model_version(currentText)
+                }
+            }
         }
     }
 }

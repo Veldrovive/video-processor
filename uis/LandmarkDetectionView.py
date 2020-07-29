@@ -6,208 +6,226 @@ from typing import List, Dict, Set, Tuple
 import os
 
 import pandas as pd
-from landmark_detection.Detector import LandmarkDetectorV2 as LandmarkDetector
-
-
-class FileListModel(QtCore.QAbstractListModel):
-    _glo: Globals
-
-    FileNameRole = QtCore.Qt.UserRole + 1
-
-    detector: LandmarkDetector
-
-    @property
-    def files(self):
-        try:
-            return self._glo.project.file_names
-        except AttributeError:
-            return []
-
-    _curr_files: List
-
-    def __init__(self):
-        self._curr_files = []
-        self._glo = Globals.get()
-        super().__init__()
-
-    def data(self, index, role=None):
-        row = index.row()
-        if role == FileListModel.FileNameRole:
-            return self._curr_files[row]
-
-    def rowCount(self, parent=None, *args, **kwargs):
-        return len(self._curr_files)
-
-    def roleNames(self):
-        return {
-            FileListModel.FileNameRole: b'fileName'
-        }
-
-    def reset(self):
-        self.beginRemoveColumns(QtCore.QModelIndex(), 0, self.rowCount())
-        self._curr_files = []
-        self.endRemoveRows()
-
-        self.beginInsertRows(QtCore.QModelIndex(), 0, len(self.files) - 1)
-        self._curr_files = self.files
-        self.endInsertRows()
-
-
-class KeypointListModel(QtCore.QAbstractListModel):
-    KeypointRole = QtCore.Qt.UserRole + 2
-    CheckedRole = QtCore.Qt.UserRole + 3
-
-    curr_keypoints: List = []
-
-    checked_keypoint_indexes: List = []
-
-    @QtCore.pyqtSlot(int, result=bool, name="isChecked")
-    def is_checked(self, index):
-        return index in self.checked_keypoint_indexes
-
-    def update_unchecked_indexes(self, indexes):
-        self.checked_keypoint_indexes = [index for index, keypoint in enumerate(self.curr_keypoints) if keypoint not in indexes]
-
-    def data(self, index, role=None):
-        row = index.row()
-        if role == KeypointListModel.KeypointRole:
-            return self.curr_keypoints[row] + 1
-
-    def rowCount(self, parent=None, *args, **kwargs):
-        return len(self.curr_keypoints)
-
-    def roleNames(self):
-        return {
-            KeypointListModel.KeypointRole: b'keypoint',
-            KeypointListModel.CheckedRole: b'checked'
-        }
-
-    def reset(self, keypoints: List[int]):
-        self.beginRemoveColumns(QtCore.QModelIndex(), 0, self.rowCount())
-        self.curr_keypoints = []
-        self.endRemoveRows()
-
-        self.beginInsertRows(QtCore.QModelIndex(), 0, len(keypoints) - 1)
-        self.curr_keypoints = keypoints
-        self.endInsertRows()
-
+from landmark_detection.Detector import LightningFANDetector as LandmarkDetector
 
 class LandmarkDetectionHandler(WindowHandler):
-    file_list_model: FileListModel
-    keypoint_list_model: KeypointListModel
+    _glo: Globals
 
-    file: str = None
-    frames_map: Dict = {}
-    full_video_map: Dict = {}
-    text_range_map: Dict = {}
+    progressChanged = QtCore.pyqtSignal(float)  # Changes the progress bar position. 0=Empty, 1=Full
+
+    _detecting: bool = False
+    detectingUpdated = QtCore.pyqtSignal()
+    @QtCore.pyqtProperty(bool, notify=detectingUpdated)
+    def detecting(self):
+        return self._detecting
+    @detecting.setter
+    def detecting(self, new_state: bool):
+        self._detecting = new_state
+        self.detectingUpdated.emit()
+
+    # detecting: bool = False
+
+    all_frames_map: Dict[str, bool]
+    allFramesMapUpdated = QtCore.pyqtSignal()
+    @QtCore.pyqtProperty(bool, notify=allFramesMapUpdated)
+    def curr_all_frames(self):
+        try:
+            return self.all_frames_map[self.current_video]
+        except KeyError:
+            return False
+    @curr_all_frames.setter
+    def curr_all_frames(self, new_state: bool):
+        self.all_frames_map[self.current_video] = new_state
+        self.allFramesMapUpdated.emit()
+        self.totalFramesUpdated.emit()
+
+    some_frames_map: Dict[str, str]
+    someFramesMapUpdated = QtCore.pyqtSignal()
+    @QtCore.pyqtProperty(str, notify=someFramesMapUpdated)
+    def curr_some_frames(self):
+        try:
+            return self.some_frames_map[self.current_video]
+        except KeyError:
+            return ""
+    @curr_some_frames.setter
+    def curr_some_frames(self, new_state: str):
+        if len(new_state) == 0:
+            self.some_frames_map[self.current_video] = new_state
+            self.someFramesMapUpdated.emit()
+            self.totalFramesUpdated.emit()
+            return
+        frames, has_err = self.frame_desc_to_list(new_state)
+        if has_err:
+            self.send_message("Invalid Frame Range")
+        else:
+            self.some_frames_map[self.current_video] = new_state
+            self.totalFramesUpdated.emit()
+        self.someFramesMapUpdated.emit()
+
+    selected_keypoints_map: Dict[str, Set[int]]
+    selectedKeypointsUpdated = QtCore.pyqtSignal()
+    @QtCore.pyqtProperty(list, notify=selectedKeypointsUpdated)
+    def curr_active_keypoints(self):
+        try:
+            return self.selected_keypoints_map[self.current_video]
+        except KeyError:
+            return []
+    @QtCore.pyqtSlot(int, bool)
+    def set_keypoint_active(self, keypoint: int, active: bool):
+        keypoints = self.selected_keypoints_map[self.current_video]
+        if active:
+            keypoints.add(keypoint)
+        else:
+            keypoints.discard(keypoint)
+        self.selectedKeypointsUpdated.emit()
+        self.keypointsUpdated.emit()
+        self.totalFramesUpdated.emit()
+    @QtCore.pyqtSlot()
+    def toggle_all_keypoints(self):
+        keypoints = self.selected_keypoints_map[self.current_video]
+        if len(keypoints) > 0:
+            keypoints.clear()
+        else:
+            keypoints.update(self._glo.video_config.key_points[self.current_video_path])
+        self.selectedKeypointsUpdated.emit()
+        self.keypointsUpdated.emit()
+        self.totalFramesUpdated.emit()
+
+    _curr_video_index: int = -1
+    videoIndexUpdated = QtCore.pyqtSignal()
+    @QtCore.pyqtProperty(int, notify=videoIndexUpdated)
+    def curr_video_index(self):
+        return self._curr_video_index
+    @curr_video_index.setter
+    def curr_video_index(self, new_val):
+        self._curr_video_index = new_val
+        self._glo.select_file(self.current_video_path)
+        self.videoIndexUpdated.emit()
+        self.keypointsUpdated.emit()
+        self.allFramesMapUpdated.emit()
+        self.someFramesMapUpdated.emit()
+    @QtCore.pyqtProperty(str)
+    def current_video(self):
+        try:
+            return self.videos_list[self._curr_video_index]["name"]
+        except IndexError:
+            return ""
 
     @QtCore.pyqtProperty(str)
-    def project_name(self):
-        return self._glo.project.name
+    def current_video_path(self):
+        try:
+            return self.videos_list[self._curr_video_index]["path"]
+        except KeyError:
+            return ""
 
-    @QtCore.pyqtProperty(bool)
-    def curr_full_video_state(self):
-        return self.frames_map[self.file]['full_video']
+    videosUpdated = QtCore.pyqtSignal()
+    @QtCore.pyqtProperty(list, notify=videosUpdated)
+    def videos_list(self):
+        if self._glo.project is None:
+            return []
+        return [{"name": os.path.basename(file), "path": file} for file in self._glo.project.files]
 
-    @QtCore.pyqtProperty(str)
-    def curr_video_range_state(self):
-        return self.frames_map[self.file]['text_range']
+    keypointsUpdated = QtCore.pyqtSignal()
+    @QtCore.pyqtProperty(list, notify=keypointsUpdated)
+    def curr_keypoints(self):
+        if self._curr_video_index < 0:
+            return []
+        keypoints = self._glo.video_config.key_points[self.current_video_path]
+        active_keypoints = self.curr_active_keypoints
+        return sorted([{'frame': frame, 'active': frame in active_keypoints} for frame in keypoints], key=lambda elem: elem['frame'])
 
-    @QtCore.pyqtProperty(int)
+    totalFramesUpdated = QtCore.pyqtSignal()
+    @QtCore.pyqtProperty(int, notify=totalFramesUpdated)
     def total_frames(self):
-        all_frames = self.get_frames_map()
+        frame_map = self.get_frame_map()
         total = 0
-        for frames in all_frames.values():
+        for frames in frame_map.values():
             total += len(frames)
         return total
 
-    projectChanged = QtCore.pyqtSignal()
-    videoChanged = QtCore.pyqtSignal()
-    numFramesChanged = QtCore.pyqtSignal()
-    progressChanged = QtCore.pyqtSignal(float, arguments=["progress"])
+    @QtCore.pyqtSlot(int)
+    def go_to_frame(self, frame: int):
+        self._glo.select_frame(frame)
 
-    def __init__(self, engine: QtQuick.QQuickView):
-        # These models are declared first since they are used by setup_contexts() which is called by the super constructor
-        self.file_list_model = FileListModel()
-        self.keypoint_list_model = KeypointListModel()
-        super().__init__(engine, "uis/LandmarkDetectionView.qml",
-                         "Detect Landmarks")
-        self._list_view = self._window.findChild(QtCore.QObject, "listView")
-        self._progress_bar = self._window.findChild(QtCore.QObject, "progressBar")
-        self._glo.onProjectChange.connect(self.on_project_changed)
+    _local_model_selection: str = None
+    modelNamesUpdated = QtCore.pyqtSignal()
+    @QtCore.pyqtProperty(list, notify=modelNamesUpdated)
+    def model_names(self):
+        if self._glo.model_config is None:
+            return []
+        return list(self._glo.model_config.models.keys())
+    @QtCore.pyqtSlot(str)
+    def set_model_name(self, name: str):
+        self._local_model_selection = name
+        self.set_model_version("Latest")
+        self.modelSelectionUpdated.emit()
 
-    def on_project_changed(self):
-        """Handles actions taken when the project changes"""
-        self._list_view.currentIndex = -1
-        self.projectChanged.emit()
+    modelSelectionUpdated = QtCore.pyqtSignal()
+    @QtCore.pyqtProperty(str, notify=modelSelectionUpdated)
+    def model_name(self):
+        if self._local_model_selection is None:
+            return ""
+        return self._local_model_selection
+    @QtCore.pyqtProperty(list, notify=modelSelectionUpdated)
+    def model_versions(self):
+        if self._local_model_selection is None or self._glo.model_config is None:
+            return ["Latest"]
+        return ["Latest"] + self._glo.model_config.models[self._local_model_selection]
 
-    def setup_contexts(self):
-        """Overrides contexts to insert file list model"""
-        self.add_context("fileListModel", self.file_list_model)
-        self.add_context("keypointListModel", self.keypoint_list_model)
-
-    def show(self):
-        """Overrides the show function so that the list can be updated"""
-        self.file_list_model.reset()
-        self.setup_maps()
-        self.get_video_data(0)
-        super().show()
-
-    def setup_maps(self):
-        """Creates a map to the frame to find the landmarks of"""
-        if self._glo.project is None:
-            self.frames_map = {}
-        else:
-            curr_keys = list(self.frames_map.keys())
-            for key in curr_keys:
-                if key not in self._glo.project.files:
-                    del self.frames_map[key]
-            for file in self._glo.project.files:
-                if file not in self.frames_map:
-                    self.frames_map[file] = {
-                        'excluded_frames': set(),
-                        'full_video': False,
-                        'text_range': None
-                    }
-
-    @QtCore.pyqtSlot(int, name="getVideoData")
-    def get_video_data(self, index: int):
-        try:
-            self.file = self._glo.project.files[index]
-            keypoints = self._glo.video_config.key_points[self.file]
-            keypoints.sort()
-            self.keypoint_list_model.reset(keypoints[1:-1])
-            self.keypoint_list_model.update_unchecked_indexes(self.frames_map[self.file]['excluded_frames'])
-            self._list_view.currentIndex = index
-            self.videoChanged.emit()
-            self._glo.select_file(self.file)
-        except (IndexError, AttributeError):
-            self.keypoint_list_model.reset([])
-
-    @QtCore.pyqtSlot(int, bool, name="setFileKeypoint")
-    def set_file_keypoint(self, keypoint_index: int, state: bool):
-        key_frame = self.keypoint_list_model.curr_keypoints[keypoint_index]
-        if not state:
-            self.frames_map[self.file]['excluded_frames'].add(key_frame)
+    modelVersionUpdated = QtCore.pyqtSignal()
+    @QtCore.pyqtProperty(str, notify=modelVersionUpdated)
+    def model_version(self):
+        if self._glo.model_config is None:
+            return "Latest"
+        version = self._glo.model_config.model_version
+        if version is None:
+            version = "Latest"
+        return str(version)
+    @QtCore.pyqtSlot(str)
+    def set_model_version(self, version: str):
+        if version == "Latest":
+            version = None
         else:
             try:
-                self.frames_map[self.file]['excluded_frames'].remove(key_frame)
-            except KeyError:
-                pass
-        self.keypoint_list_model.update_unchecked_indexes(self.frames_map[self.file]['excluded_frames'])
-        self.numFramesChanged.emit()
+                version = int(version)
+            except ValueError:
+                version = None
+        self._glo.model_config.set_model(self._local_model_selection, version)
 
-    @QtCore.pyqtSlot(bool, name="setFullVideo")
-    def set_full_video(self, state: bool):
-        if self.file is not None:
-            self.frames_map[self.file]['full_video'] = state
-            self.numFramesChanged.emit()
+    def __init__(self, engine: QtQuick.QQuickView):
+        self.all_frames_map = {}
+        self.some_frames_map = {}
+        self.selected_keypoints_map = {}
+        super().__init__(engine, "uis/LandmarkDetectionView.qml",
+                         "Detect Landmarks")
 
-    @QtCore.pyqtSlot(str, name="setFrameRange")
-    def set_frame_range(self, state: str):
-        if self.file is not None:
-            self.frames_map[self.file]['text_range'] = state
-            self.numFramesChanged.emit()
+        def on_config_change(conf: str):
+            if conf == "model_config":
+                self._local_model_selection = self._glo.model_config.model_name
+                self.modelNamesUpdated.emit()
+                self.modelSelectionUpdated.emit()
+                self.modelVersionUpdated.emit()
+        self._glo.onConfigChange.connect(on_config_change)
+        self.videosUpdated.connect(self.refresh_maps)
+
+    def show(self):
+        super().show()
+        self.videosUpdated.emit()
+        self._local_model_selection = self._glo.model_config.model_name
+        self.modelNamesUpdated.emit()
+        self.modelSelectionUpdated.emit()
+        self.modelVersionUpdated.emit()
+        self.keypointsUpdated.emit()
+        self._glo.video_config.keyPointsUpdated.connect(self.keypointsUpdated.emit)
+
+    def refresh_maps(self):
+        for video in self.videos_list:
+            if video["name"] not in self.all_frames_map:
+                self.all_frames_map[video["name"]] = False
+            if video["name"] not in self.some_frames_map:
+                self.some_frames_map[video["name"]] = ""
+            if video["name"] not in self.selected_keypoints_map:
+                self.selected_keypoints_map[video["name"]] = set()
 
     @staticmethod
     def frame_desc_to_list(desc: str) -> Tuple[Set[int], bool]:
@@ -236,31 +254,28 @@ class LandmarkDetectionHandler(WindowHandler):
                     continue
         return frames, has_err
 
-    def get_frames_map(self) -> Dict:
-        """Calculates the actual sets of frames that will be detected"""
+    def get_frame_map(self):
         frame_map = {}
-        for file, config in self.frames_map.items():
-            full_frames = set()
-            if config['full_video']:
-                cap = cv2.VideoCapture(file)
+        for video in self.videos_list:
+            all_frames = set()
+            name, path = video["name"], video["path"]
+            if self.all_frames_map[name]:
+                cap = cv2.VideoCapture(path)
                 if cap is not None and cap.isOpened():
                     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                    full_frames.update(range(frame_count))
-            if config['text_range'] is not None and len(config['text_range']) > 0:
-                frames, err = self.frame_desc_to_list(config['text_range'])
-                full_frames.update(frames)
-                # if err:
-                #     self.send_message("Your range has a syntax error.\nAn example of the correct format is 1-10, 12, 14, 30-40")
-            keypoints = self._glo.video_config.key_points[file]
-            keypoints.sort()
-            keypoint_frames = [frame for frame in keypoints[1:-1] if frame not in config['excluded_frames']]
-            full_frames.update(keypoint_frames)
-            frame_map[file] = set(sorted(full_frames))
+                    all_frames.update(range(frame_count))
+                    frame_map[path] = all_frames
+                continue
+            if len(self.some_frames_map[name]) > 0:
+                all_frames.update(self.frame_desc_to_list(self.some_frames_map[name])[0])
+            all_frames.update(
+                set([frame for frame in self.selected_keypoints_map[name] if frame in self._glo.video_config.key_points[path]])
+            )
+            frame_map[path] = all_frames
         return frame_map
 
-    def on_frame_done(self, frame_number: int, prop_complete: float):
-        """Updates the visuals for when a frame is done"""
-        self.progressChanged.emit(prop_complete)
+    def on_frame_done(self, _num_processed: int, progress: float):
+        self.progressChanged.emit(progress)
 
     def on_video_done(self, video: str, landmarks: pd.DataFrame):
         """Updates landmarks with the new ones"""
@@ -270,7 +285,7 @@ class LandmarkDetectionHandler(WindowHandler):
         if landmark_file is None:
             add_landmarks = True
             old_landmarks = pd.DataFrame()
-            landmark_file = os.path.splitext(video)[0]+".csv"
+            landmark_file = os.path.splitext(video)[0] + ".csv"
         else:
             old_landmarks = pd.read_csv(landmark_file)
         if old_landmarks.empty:
@@ -280,27 +295,39 @@ class LandmarkDetectionHandler(WindowHandler):
         new_frame.to_csv(landmark_file)
         if add_landmarks:
             self._glo.project.set_landmarks(video, landmark_file)
-        self._glo.select_file(video)
+        if self._glo.curr_file == video:
+            self._glo.select_file(video)
 
     def on_inference_finished(self):
-        """Updates the visuals for when the inference is totally done"""
+        self.send_message("Finished finding landmarks")
+        self.detecting = False
         self.progressChanged.emit(1)
-        self.send_message("Inference Finished")
+        self.all_frames_map = {}
+        self.some_frames_map = {}
+        self.selected_keypoints_map = {}
+        self.videosUpdated.emit()
+        self.videoIndexUpdated.emit()
+        self.keypointsUpdated.emit()
+        self.allFramesMapUpdated.emit()
+        self.someFramesMapUpdated.emit()
+        self.totalFramesUpdated.emit()
 
-    @QtCore.pyqtSlot(name="detect")
+    @QtCore.pyqtSlot()
     def detect(self):
+        self.detecting = True
         try:
-            self.detector = LandmarkDetector(self.get_frames_map())
+            self.detector = LandmarkDetector(self.get_frame_map())
             has_errored, errors = self.detector.has_errored()
             if has_errored:
                 message = f"Errors ({len(errors)}):\n" + "\n".join(errors)
                 self.send_message(message)
+                self.detecting = False
             else:
                 self.detector.frame_done_signal.connect(self.on_frame_done)
                 self.detector.landmarks_complete_signal.connect(self.on_video_done)
                 self.detector.inference_done_signal.connect(self.on_inference_finished)
                 self.detector.start()
         except Exception as err:
+            self.detecting = False
             print("Failed to detect: ", err)
-
 

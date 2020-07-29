@@ -154,8 +154,9 @@ class Config(QtCore.QObject):
 
     onChangeSignal = QtCore.pyqtSignal()
 
-    def __init__(self, load_file: str = None):
+    def __init__(self, load_file: str = None, glo=None):
         super(Config, self).__init__()
+        self._glo = glo
         self.set_defaults()
         if load_file is not None:
             self.load(load_file)
@@ -330,6 +331,7 @@ class VideoConfig(Config):
 
     setPosition = QtCore.pyqtSignal(int)  # Emitted to change the video frame
     remarkFrames = QtCore.pyqtSignal()  # Emitted to remark the current frames
+    keyPointsUpdated = QtCore.pyqtSignal()  # Emitted when a keypoint is added
 
     def load(self, file: str) -> bool:
         if not super(VideoConfig, self).load(file):
@@ -410,6 +412,7 @@ class VideoConfig(Config):
         if frame in self.key_points[self.curr_video]:
             return False
         self.key_points[self.curr_video].append(frame)
+        self.keyPointsUpdated.emit()
         return True
 
     def remove_keypoint(self, frame: int) -> bool:
@@ -419,6 +422,7 @@ class VideoConfig(Config):
         if self.curr_video is None or frame not in self.key_points[self.curr_video]:
             return False
         self.key_points[self.curr_video].remove(frame)
+        self.keyPointsUpdated.emit()
         return True
 
     def toggle_keypoint(self, frame: int) -> Union[None, bool]:
@@ -460,6 +464,100 @@ class VideoConfig(Config):
     def get_position(self) -> int:
         """Gets the saved position of the current video"""
         return self.curr_positions[self.curr_video]
+
+class ModelConfig(Config):
+    # Basic config
+    model_name: str = "Default"  # Stores the model the user has currently selected
+    model_version: Optional[int] = None  # Which version of the model to use. None is latest.
+
+    # Retraining Config
+    learning_rate: Optional[float] = None  # None means find a default value
+    batch_size: Optional[int] = None  # None means find a default value
+    epochs: int = 10
+
+    proportion_val: float = 0.1
+    proportion_test: float = 0.1
+    @property
+    def proportion_train(self) -> float:
+        return 1-self.proportion_val-self.proportion_test
+    
+    # To Save
+    saved_props = ["model_name", "model_version", "learning_rate", "batch_size", "epochs", "proportion_val", "proportion_test"]
+
+    # Signals
+    modelChanged = QtCore.pyqtSignal()  # When the model name or version changes
+    lrChanged = QtCore.pyqtSignal()
+    batchSizeChanged = QtCore.pyqtSignal()
+    epochsChanged = QtCore.pyqtSignal()
+    splitsChanged = QtCore.pyqtSignal()  # When prop_val or prop_test changes
+
+    def set_defaults(self):
+        self.model_name = "Default"
+        self.model_version = None
+        self.learning_rate = None
+        self.batch_size = None
+        self.proportion_val = 0.1
+        self.proportion_test = 0.1
+
+    @property
+    def models(self) -> Dict[str, List[int]]:
+        models = {"Default": []}
+        models_dir = self._glo.project.fan_dir
+        model_dirs = [f.name for f in os.scandir(models_dir) if f.is_dir()]
+        for model_name in model_dirs:
+            model_dir = os.path.join(models_dir, model_name)
+            def get_version(name):
+                try:
+                    return int(os.path.splitext(name)[0][len(file_base):])
+                except ValueError:
+                    return -1
+            file_base = f"{model_name}_model_v"
+            versions = set([get_version(file) for file in os.listdir(model_dir) if file_base in file])
+            versions.discard(-1)
+            models[model_name] = sorted(versions)
+        return models
+
+    def set_model(self, name: str, version: Optional[int] = None) -> Optional[str]:  # Returns the error if there is one
+        models = self.models
+        if name not in models:
+            return "No model by that name exists"
+        if version is not None and version not in models[name]:
+            return "No model of that version exists"
+        self.model_name = name
+        self.model_version = version
+        self.modelChanged.emit()
+
+    @property
+    def model_path(self):
+        if self.model_name == "Default":
+            return self._glo.project.default_fan_path
+        version = self.models[self.model_name][-1] if self.model_version is None else self.model_version
+        return os.path.join(self._glo.project.fan_dir, self.model_name, f"{self.model_name}_model_v{version}.ptl")
+
+    @property
+    def s3fd_path(self):
+        return self._glo.project.default_s3fd_path
+
+    def set_lr(self, lr: Optional[float] = None):
+        self.learning_rate = lr
+        self.lrChanged.emit()
+
+    def set_batch_size(self, batch_size: Optional[int] = None):
+        self.batch_size = batch_size
+        self.batchSizeChanged.emit()
+
+    def set_epochs(self, epochs: int):
+        self.epochs = epochs
+        self.epochsChanged.emit()
+
+    def set_proportions(self, prop_val: Optional[float] = None, prop_test: Optional[float] = None):
+        if prop_val:
+            self.proportion_val = min(prop_val, 1-prop_test)
+        if prop_test:
+            self.proportion_test = min(prop_test, 1-prop_val)
+        self.splitsChanged.emit()
+
+
 
 
 class BoundingBox:
@@ -515,6 +613,12 @@ class Landmark:
             f"landmark_{self.index}_y": [self.locations[frame][1] for frame in self.locations]
         }
 
+    def get_frames(self):
+        """
+        Returns a list of all frame on which the landmark is defined
+        """
+        return sorted(self.locations.keys())
+
 class Landmarks:
     _landmarks_frame: pd.DataFrame = None
     _landmarks_file: str = None
@@ -525,13 +629,27 @@ class Landmarks:
     _has_bbox: bool = False
     _has_landmarks = False
 
-    def __init__(self, landmarks: pd.DataFrame, n_landmarks: int = 68, file: str = None):
+    def __init__(self, landmarks: pd.DataFrame, file: str = None):
         self._landmarks_frame = landmarks
         self._landmarks_file = file
-        self._n_landmarks = n_landmarks
+        self._n_landmarks = int(len([col for col in landmarks.columns if "landmark_" in col]) / 2)
         self._landmarks = []
         self.populate_landmarks()
         self.populate_bounding_boxes()
+
+    def calculate_landmark_ranges(self) -> List[Tuple[int, int]]:
+        ranges = []
+        start = None
+        last_landmark_frame = None
+        for frame in sorted(self.get_frames()):
+            if last_landmark_frame is None or frame > last_landmark_frame + 1:
+                if start is not None:
+                    ranges.append((start, last_landmark_frame))
+                start = frame
+            last_landmark_frame = frame
+        if start is not None and last_landmark_frame is not None:
+            ranges.append((start, last_landmark_frame))
+        return ranges
 
     def has_bbox(self):
         return self._has_bbox
@@ -781,11 +899,15 @@ class Project:
             return None
         return os.path.join(self.models_dir, "FAN")
 
+    default_fan_path: str = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../landmark_detection/models/default_fan.tar"))
+
     @property
     def s3fd_dir(self) -> Optional[str]:
         if self.models_dir is None:
             return None
         return os.path.join(self.models_dir, "s3fd")
+
+    default_s3fd_path: str = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../landmark_detection/models/s3fd.pth"))
 
     def __init__(self, name: str, save_loc: Optional[str] = None, p_id: Optional[str] = None):
         # if len(name) < 1:
@@ -798,16 +920,28 @@ class Project:
 
     def add_FAN(self, file_path: str):
         """Moves a new fan model into the project"""
+        shutil.copy(file_path, self.get_new_FAN_path())
+
+    def get_new_FAN_path(self) -> str:
+        """Gets the path that the next FAN model will save to"""
         try:
             max_index = max([int(file.split("_")[1]) for file in os.listdir(self.fan_dir)])
         except ValueError:
             max_index = 0
-        shutil.copy(file_path, os.path.join(self.fan_dir, f"FAN_{max_index}_.pth.tar"))
+        return os.path.join(self.fan_dir, f"FAN_{max_index+1}_.pth.tar")
 
     def get_FAN_path(self) -> Optional[str]:
         """Gets the most recent FAN model"""
+        def get_num_model(model_path):
+            try:
+                return int(model_path.split("_")[1])
+            except (ValueError, IndexError) as e:
+                return -1
+
         try:
-            max_index = max([int(file.split("_")[1]) for file in os.listdir(self.fan_dir)])
+            max_index = max([get_num_model(file) for file in os.listdir(self.fan_dir)])
+            if max_index < 0:
+                return None
             return os.path.join(self.fan_dir, f"FAN_{max_index}_.pth.tar")
         except ValueError:
             return None
