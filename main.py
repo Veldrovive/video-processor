@@ -3,12 +3,10 @@ import pandas as pd
 import cv2
 import time
 
-import pkg_resources.py2_warn
-
 from PyQt5 import QtWidgets, QtGui, QtCore, QtQuick
 from PyQt5.QtQml import qmlRegisterType
 from matplotlib_backend_qtquick.backend_qtquickagg import FigureCanvasQtQuickAgg
-from uis.projectView import ProjectHandler
+from uis.projectView import ProjectHandlerV2 as ProjectHandler
 from uis.GraphView import GraphViewHandlerV2 as GraphViewHandler
 from uis.LandmarkDetectionView import LandmarkDetectionHandler
 from uis.RetrainerView import RetrainerView
@@ -59,8 +57,7 @@ class MainWindow(VideoViewerWindow):
 
     def new_project(self):
         window: ProjectHandler = self.get_window("project_handler")
-        window.init_project(DataHolders.Project(""))
-        window.show()
+        window.show(new=True)
 
     def setup_detection_view(self):
         self.add_window("detection_handler", LandmarkDetectionHandler)

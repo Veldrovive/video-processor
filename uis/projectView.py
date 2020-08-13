@@ -1,12 +1,160 @@
-from typing import List, Union
+from typing import List, Union, Dict, Optional
 import cv2
 import os
+import re
 
 from utils.qmlBase import WindowHandler
 import utils.DataHolders as DataHolders
 from utils.Globals import Globals
 from PyQt5 import QtQuick, QtCore
 import pandas as pd
+
+class ProjectHandlerV2(WindowHandler):
+    _glo: Globals
+
+    creating_new: bool = False
+    _save_dir: Optional[str] = None
+    _name: str = ""
+    _files: Dict[str, str]
+
+    openSaveLocDialog = QtCore.pyqtSignal()
+
+    @property
+    def project(self) -> Optional[DataHolders.Project]:
+        return self._glo.project
+
+    saveLocUpdated = QtCore.pyqtSignal()
+    @QtCore.pyqtProperty(str, notify=saveLocUpdated)
+    def save_loc(self) -> Optional[str]:
+        if self.creating_new:
+            if self._save_dir is None:
+                return None
+            if len(self._name) < 1:
+                return None
+            return os.path.join(os.path.abspath(self._save_dir), "".join([c for c in self._name if re.match(r'\w', c)]))
+        elif self.project is not None:
+            return self.project.save_loc
+        return None
+
+    @save_loc.setter
+    def save_loc(self, loc: str):
+        if self.creating_new:
+            if len(loc) < 1:
+                self.send_message("A new project must have a folder.", self.hide)
+            loc = os.path.abspath(loc)
+            self._save_dir = loc
+            self.saveLocUpdated.emit()
+        elif self.project is not None:
+            loc = os.path.abspath(loc)
+            self.project.set_save_loc(loc)
+            self.saveLocUpdated.emit()
+
+    filesChanged = QtCore.pyqtSignal()
+    @QtCore.pyqtProperty(list, notify=filesChanged)
+    def files(self):
+        if self.creating_new:
+            return [{"path": path, "name": os.path.basename(path)} for path in self._files.keys()]
+        elif self.project is not None:
+            return [{"path": path, "name": os.path.basename(path)} for path in self.project.files]
+        return []
+
+    @QtCore.pyqtSlot(str)
+    def add_file(self, path: str):
+        path = os.path.abspath(path)
+        if not os.path.isfile(path):
+            raise ValueError("Video file does not exist")
+        if self.creating_new and path not in self._files:
+            self._files[path] = None
+        elif self.project is not None:
+            self.project.add_file(path)
+        self.filesChanged.emit()
+
+    @QtCore.pyqtSlot(str)
+    def remove_file(self, path: str):
+        path = os.path.abspath(path)
+        if self.creating_new and path in self._files:
+            del self._files[path]
+        elif self.project is not None:
+            self.project.remove_video(path)
+        self.filesChanged.emit()
+
+    @QtCore.pyqtSlot(str, str)
+    def add_landmarks(self, video_path: str, landmarks_path: str):
+        video_path, landmarks_path = os.path.abspath(video_path), os.path.abspath(landmarks_path)
+        if self.creating_new and video_path in self._files:
+            self._files[video_path] = landmarks_path
+        elif self.project is not None:
+            self.project.set_landmarks(video_path, landmarks_path)
+
+    nameChanged = QtCore.pyqtSignal()
+    @QtCore.pyqtProperty(str, notify=nameChanged)
+    def name(self):
+        if self.creating_new:
+            return self._name
+        elif self.project is not None:
+            return self.project.name
+        return ""
+    @name.setter
+    def name(self, name: str):
+        if self.creating_new:
+            self._name = name
+        elif self.project is not None:
+            self.project.name = name
+            self.project.save()
+        self.nameChanged.emit()
+
+    def validate(self) -> Optional[str]:
+        if self.name is None or len(self.name) < 1:
+            return "Project must have a name"
+        if len(self.files) < 1:
+            return "Project must have files in it"
+        if self.save_loc is None:
+            return "Project must have a save location"
+        print("Save Location: ", self.save_loc)
+        if os.path.exists(self.save_loc) and self.creating_new:
+            return "Project folder already exists. Try changing the name"
+
+    @QtCore.pyqtSlot()
+    def save(self) -> bool:
+        error = self.validate()
+        if error:
+            self.send_message(error)
+            return False
+        if self.creating_new:
+            new_project = DataHolders.Project(self._name, self.save_loc)
+            for video_file, landmark_file in self._files.items():
+                new_project.add_file(video_file)
+                if landmark_file:
+                    new_project.set_landmarks(video_file, landmark_file)
+            new_project.save()
+            self._glo.select_project(self.save_loc)
+            self.hide()
+            self.reset()
+            return True
+        elif self.project is not None:
+            self.project.save()
+            self.hide()
+            return True
+        self.send_message("Failed to create project for an unknown reason. How did you do this?")
+        return False
+
+    def __init__(self, engine: QtQuick.QQuickView):
+        self._glo = Globals.get()
+        self.reset()
+        super().__init__(engine, "uis/projectViewV2.qml", "Create Project")
+
+    def reset(self):
+        self._files = {}
+        self._name = ""
+        self._save_dir = None
+
+    def show(self, new: bool = False):
+        self.creating_new = new
+        self.filesChanged.emit()
+        self.nameChanged.emit()
+        super().show()
+        if new:
+            self.send_message("Select a folder that your project will be stored in.", self.openSaveLocDialog.emit)
 
 class FileListModel(QtCore.QAbstractListModel):
     FileNameRole = QtCore.Qt.UserRole + 1
