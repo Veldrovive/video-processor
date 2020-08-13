@@ -2,7 +2,7 @@ from utils.qmlBase import WindowHandler
 from PyQt5 import QtQuick, QtCore
 import cv2
 from utils.Globals import Globals
-from typing import List, Dict, Set, Tuple
+from typing import List, Dict, Set, Tuple, Optional
 import os
 
 import pandas as pd
@@ -39,6 +39,7 @@ class LandmarkDetectionHandler(WindowHandler):
         self.allFramesMapUpdated.emit()
         self.totalFramesUpdated.emit()
 
+    _last_valid_some_frames: str = ""
     some_frames_map: Dict[str, str]
     someFramesMapUpdated = QtCore.pyqtSignal()
     @QtCore.pyqtProperty(str, notify=someFramesMapUpdated)
@@ -54,13 +55,19 @@ class LandmarkDetectionHandler(WindowHandler):
             self.someFramesMapUpdated.emit()
             self.totalFramesUpdated.emit()
             return
-        frames, has_err = self.frame_desc_to_list(new_state)
-        if has_err:
-            self.send_message("Invalid Frame Range")
-        else:
-            self.some_frames_map[self.current_video] = new_state
+        frames, err = self.frame_desc_to_list(new_state)
+        self.some_frames_map[self.current_video] = new_state
+        if not err:
+            self._last_valid_some_frames = new_state
             self.totalFramesUpdated.emit()
         self.someFramesMapUpdated.emit()
+    @QtCore.pyqtSlot()
+    def finish_some_frames(self):
+        frames, err = self.frame_desc_to_list(self.curr_some_frames)
+        if err:
+            self.curr_some_frames = self._last_valid_some_frames
+            self.send_message(f"{err}. Resetting to last valid range.")
+            self.totalFramesUpdated.emit()
 
     selected_keypoints_map: Dict[str, Set[int]]
     selectedKeypointsUpdated = QtCore.pyqtSignal()
@@ -98,8 +105,10 @@ class LandmarkDetectionHandler(WindowHandler):
         return self._curr_video_index
     @curr_video_index.setter
     def curr_video_index(self, new_val):
+        self.finish_some_frames()
         self._curr_video_index = new_val
         self._glo.select_file(self.current_video_path)
+        self._last_valid_some_frames = ""
         self.videoIndexUpdated.emit()
         self.keypointsUpdated.emit()
         self.allFramesMapUpdated.emit()
@@ -228,31 +237,42 @@ class LandmarkDetectionHandler(WindowHandler):
                 self.selected_keypoints_map[video["name"]] = set()
 
     @staticmethod
-    def frame_desc_to_list(desc: str) -> Tuple[Set[int], bool]:
+    def frame_desc_to_list(desc: str) -> Tuple[Set[int], str]:
         """
         Takes a description of numbers and turns it into a set containing all
         number included. I.E. (1-5, 8, 10) -> [1, 2, 3, 4, 5, 8, 10]
         :param desc: A string defining the numbers
         :return: A sorted set of the numbers
         """
-        has_err = False
+        err = ""
         frames = set()
         sections = [sec.strip() for sec in desc.split(",")]
+        print(desc, sections)
         for section in sections:
+            if len(section) < 1:
+                continue
             parts = [part.strip() for part in section.split("-")]
             if len(parts) == 1:
                 try:
                     frames.add(int(parts[0]) - 1)
                 except ValueError:
-                    has_err = True
+                    err = "Inputs must be integers"
                     continue
-            elif len(parts) > 1:
+            elif len(parts) == 2:
                 try:
+                    if int(parts[-1]) <= int(parts[0]) - 1:
+                        err = "Final position must be greater than initial position"
+                        continue
                     frames.update(range(int(parts[0]) - 1, int(parts[-1])))
                 except ValueError:
-                    has_err = True
+                    err = "Inputs must be integers"
                     continue
-        return frames, has_err
+            else:
+                err = "Ranges must have at most one part(-)"
+                continue
+        print(frames, err)
+        print()
+        return frames, err
 
     def get_frame_map(self):
         frame_map = {}

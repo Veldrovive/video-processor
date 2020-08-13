@@ -193,9 +193,13 @@ ApplicationWindow {
                             return '';
                         }
 
+                        onTextEdited: {
+                            handler.curr_some_frames = text;
+                        }
+
                         onEditingFinished: {
                             focus = false;
-                            handler.curr_some_frames = text;
+                            handler.finish_some_frames();
                         }
                     }
                 }
