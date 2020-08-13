@@ -561,10 +561,10 @@ class LightningFAN(LightningModule):
         """
         Freeze all but the last hourglass for training.
         """
-        for i, param in enumerate(self._fan.parameters()):
-            if i < 168:
-                param.requires_grad = False
-            param.requires_grad = False
+        # for i, param in enumerate(self._fan.parameters()):
+        #     if i < 168:
+        #         param.requires_grad = False
+        #     param.requires_grad = False
         # trainable = [
         #     self._fan.l3, self._fan.m3, self._fan.top_m_3, self._fan.conv_last3, self._fan.bn_end3
         # ]
