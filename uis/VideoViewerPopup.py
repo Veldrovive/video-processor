@@ -135,6 +135,9 @@ class VideoViewerWindowV2(QtWidgets.QMainWindow):
         self.edited_frames = pd.read_csv(self.edited_frames_file) if os.path.isfile(self.edited_frames_file) else pd.DataFrame(columns=["vidFile", "frameNumber"])
 
         self.main_Widget = QtWidgets.QWidget(self)
+        self.main_Widget.setObjectName("mainView")
+        self.main_Widget.setStyleSheet('QWidget#mainView{background-color: "#f9fafa";}')
+        # self.main_Widget.setProperty("background-color", "red")
         self.setCentralWidget(self.main_Widget)
         self.layout = QtWidgets.QVBoxLayout()
         self.main_Widget.setLayout(self.layout)
@@ -246,12 +249,12 @@ class VideoViewerWindowV2(QtWidgets.QMainWindow):
         self.add_action(None, "Next Video",
                         shortcut="Ctrl+Shift+right",
                         status_tip="Move to the next video in the project",
-                        icon="./icons/forward.svg",
+                        icon="./icons/next_video.svg",
                         callback=lambda: self.glo.select_file(self.glo.curr_file_index + 1))
         self.add_action(None, "Previous Video",
                         shortcut="Ctrl+Shift+left",
                         status_tip="Move to the previous video in the project",
-                        icon="./icons/back.svg",
+                        icon="./icons/previous_video.svg",
                         callback=lambda: self.glo.select_file(self.glo.curr_file_index - 1))
         self.add_action("&File", "Quit",
                         shortcut="Ctrl+Q",
@@ -278,7 +281,7 @@ class VideoViewerWindowV2(QtWidgets.QMainWindow):
                         visible=True,
                         shortcut="right",
                         status_tip="Pause video playback",
-                        icon="./icons/fast-forward.png",
+                        icon="./icons/step_forward.svg",
                         callback=lambda: self.viewer.jump_frames(1))
 
         def jump_forward():
@@ -296,7 +299,7 @@ class VideoViewerWindowV2(QtWidgets.QMainWindow):
                         visible=True,
                         shortcut="left",
                         status_tip="Pause video playback",
-                        icon="./icons/rewind.png",
+                        icon="./icons/step_backward.svg",
                         callback=lambda: self.viewer.jump_frames(-1))
 
         def jump_backwards():
@@ -310,9 +313,15 @@ class VideoViewerWindowV2(QtWidgets.QMainWindow):
                         status_tip="Jump to the previous keypoint",
                         icon="./icons/rewind.png",
                         callback=jump_backwards)
-        self.add_action("&View", "Add Keypoint",
+        self.add_action("&View", "Add Keyframe",
                         visible=True,
                         shortcut="Ctrl+k",
+                        status_tip="Add or Remove a keyframe at the current frame",
+                        callback=lambda: self.glo.video_config.toggle_keypoint(self.viewer.get_curr_frame()))
+        self.add_action(None, "Add Keyframe Button",
+                        visible=True,
+                        status_tip="Add or Remove a keyframe at the current frame",
+                        icon="./icons/keyframe.svg",
                         callback=lambda: self.glo.video_config.toggle_keypoint(self.viewer.get_curr_frame()))
 
         self.add_action("&View", "Take Snapshot",
@@ -359,6 +368,9 @@ class VideoViewerWindowV2(QtWidgets.QMainWindow):
         self.toolBar_Bottom = QtWidgets.QToolBar(self)
 
         # spacer widget for left
+        horizontal_spacer = QtWidgets.QWidget()
+        horizontal_spacer.setFixedSize(35, 1)
+
         left_spacer = QtWidgets.QWidget(self)
         left_spacer.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
                                   QtWidgets.QSizePolicy.Expanding)
@@ -368,13 +380,15 @@ class VideoViewerWindowV2(QtWidgets.QMainWindow):
                                    QtWidgets.QSizePolicy.Expanding)
 
         # fill the bottom toolbar
+        self.toolBar_Bottom.addWidget(horizontal_spacer)
         self.toolBar_Bottom.addWidget(left_spacer)
         self.toolBar_Bottom.addActions((self.actions["Previous Video"], self.actions["Seek Back"], self.actions["Play"], self.actions["Pause"], self.actions["Seek Forward"], self.actions["Next Video"]))
         self.toolBar_Bottom.addWidget(right_spacer)
+        self.toolBar_Bottom.addAction(self.actions["Add Keyframe Button"])
         self.toolBar_Bottom.setIconSize(QtCore.QSize(35, 35))
 
         self.toolBar_Bottom.setMinimumSize(self.toolBar_Bottom.sizeHint())
-        self.toolBar_Bottom.setStyleSheet('QToolBar{spacing:8px;}')
+        self.toolBar_Bottom.setStyleSheet('QToolBar{spacing:8px; background: red;}')
 
     def setup_slider(self):
         """
