@@ -7,7 +7,6 @@ import Backend 1.0
 
 ApplicationWindow {
     id: applicationWindow
-    flags: Qt.WindowStaysOnTopHint
     width: 640
     height: 920
     color: "#ecf0f1"

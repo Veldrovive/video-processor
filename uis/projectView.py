@@ -38,9 +38,12 @@ class ProjectHandlerV2(WindowHandler):
 
     @save_loc.setter
     def save_loc(self, loc: str):
+        if len(loc) < 1:
+            self.send_message("A new project must have a folder.", self.hide)
+        loc = QtCore.QUrl(loc).path()
+        if loc[0] == "/":
+            loc = loc[1:]
         if self.creating_new:
-            if len(loc) < 1:
-                self.send_message("A new project must have a folder.", self.hide)
             loc = os.path.abspath(loc)
             self._save_dir = loc
             self.saveLocUpdated.emit()
@@ -60,7 +63,10 @@ class ProjectHandlerV2(WindowHandler):
 
     @QtCore.pyqtSlot(str)
     def add_file(self, path: str):
-        path = os.path.abspath(path)
+        qt_url = QtCore.QUrl(path).path()
+        if qt_url[0] == "/":
+            qt_url = qt_url[1:]
+        path = os.path.abspath(qt_url)
         if not os.path.isfile(path):
             raise ValueError("Video file does not exist")
         if self.creating_new and path not in self._files:
@@ -423,6 +429,7 @@ class ProjectHandler(WindowHandler):
         Catches when a new save location has been set
         :param save_dir: The path to the new save location
         """
+        print("Save Location Changed")
         if len(save_dir) == 0 and self.project.save_loc is None:
             # Then the project is invalid
             self.send_message("A new project must have a save location", self.hide)

@@ -22,8 +22,6 @@ class MainWindow(VideoViewerWindow):
     def __init__(self):
         super(MainWindow, self).__init__()
         self._calculated_metrics = pd.DataFrame()
-        self.add_menu("&Metrics")
-        self.add_menu("&Landmarks")
         self.setup_graph_window()
         self.setup_project_window()
         self.setup_detection_view()

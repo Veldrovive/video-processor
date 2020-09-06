@@ -5,7 +5,6 @@ import QtQuick.Layouts 1.15
 
 ApplicationWindow {
     id: main
-    flags: Qt.WindowStaysOnTopHint
     objectName: "window"
     width: 640
     height: 720

@@ -5,7 +5,6 @@ import QtQuick.Layouts 1.15
 
 ApplicationWindow {
     id: projectView
-    flags: Qt.WindowStaysOnTopHint
     objectName: "window"
     width: 720
     height: 480
@@ -40,7 +39,7 @@ ApplicationWindow {
         sidebarVisible: true
         onAccepted: {
             for(const filePath of fileUrls){
-                handler.add_file(filePath.substring(7));
+                handler.add_file(filePath);
             }
         }
     }
@@ -53,7 +52,7 @@ ApplicationWindow {
         selectMultiple: false
         sidebarVisible: true
         onAccepted: {
-            handler.save_loc = fileUrls[0].substring(7);
+            handler.save_loc = fileUrls[0];
         }
         onRejected: {
             handler.save_loc = "";
