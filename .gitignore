@@ -68,8 +68,6 @@ test_imgs
 *.p
 
 .ipynb_checkpoints/
-landmark_detection/models/*
-!landmark_detection/models
 projects/
 videos/
 
