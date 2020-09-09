@@ -205,7 +205,7 @@ class LandmarkDetectionHandler(WindowHandler):
         self.all_frames_map = {}
         self.some_frames_map = {}
         self.selected_keypoints_map = {}
-        super().__init__(engine, "uis/LandmarkDetectionView.qml",
+        super().__init__(engine, "LandmarkDetectionView.qml",
                          "Detect Landmarks")
 
         def on_config_change(conf: str):

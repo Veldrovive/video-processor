@@ -147,7 +147,7 @@ class ProjectHandlerV2(WindowHandler):
     def __init__(self, engine: QtQuick.QQuickView):
         self._glo = Globals.get()
         self.reset()
-        super().__init__(engine, "uis/projectViewV2.qml", "Create Project")
+        super().__init__(engine, "projectViewV2.qml", "Create Project")
 
     def reset(self):
         self._files = {}

@@ -2,11 +2,16 @@
 
 block_cipher = None
 
+site_packages = 'C:\\Users\\Aidan Windows\\anaconda3\\envs\\vidProc\\lib\\site-packages'
 
 a = Analysis(['main.py'],
-             pathex=['/Users/aidandempster/projects/uhn/vidProcQml'],
+             pathex=['C:\\Users\\Aidan Windows\\Documents\\video-processor'],
              binaries=[],
-             datas=[],
+             datas=[
+                ('icons', 'icons'),
+                ('uis\\*.qml', 'uis'),
+                ('landmark_detection\models', 'landmark_detection\models')
+             ],
              hiddenimports=[],
              hookspath=[],
              runtime_hooks=[],

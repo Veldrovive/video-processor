@@ -483,7 +483,7 @@ class RetrainerView(WindowHandler):
 
     def __init__(self, engine: QtQuick.QQuickView):
         self._glo = Globals.get()
-        super().__init__(engine, "uis/RetrainerView.qml", "Retrain Network")
+        super().__init__(engine, "RetrainerView.qml", "Retrain Network")
 
     def show(self):
         super().show()

@@ -1,7 +1,16 @@
+# def script_method(fn, _rcb=None):
+#     return fn
+# def script(obj, optimize=True, _frames_up=0, _rcb=None):
+#     return obj
+# import torch.jit
+# torch.jit.script_method = script_method
+# torch.jit.script = script
+
 import sys
 import pandas as pd
 import cv2
 import time
+import os
 
 from PyQt5 import QtWidgets, QtGui, QtCore, QtQuick
 from PyQt5.QtQml import qmlRegisterType
@@ -14,6 +23,17 @@ from utils.Globals import Globals
 from utils import DataHolders
 
 from uis.VideoViewerPopup import VideoViewerWindowV2 as VideoViewerWindow
+try:
+   wd = sys._MEIPASS
+except AttributeError:
+   wd = os.getcwd()
+# print("WD:", wd)
+# print("Relative:", os.path.abspath("."))
+# for path in os.listdir(wd):
+#     print("WD File:", path)
+#
+# for path in os.listdir('.'):
+#     print("Relative File:", path)
 
 class MainWindow(VideoViewerWindow):
     _calculated_metrics: pd.DataFrame

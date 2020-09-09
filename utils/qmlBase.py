@@ -1,8 +1,16 @@
+import os
+import sys
+
 from PyQt5.QtQml import QQmlApplicationEngine
 from PyQt5 import QtQuick, QtCore
 from PyQt5.QtQml import qmlRegisterType, QQmlComponent, QQmlEngine, QQmlContext
 
 from utils.Globals import Globals
+
+try:
+   wd = sys._MEIPASS
+except AttributeError:
+   wd = os.getcwd()
 
 class WindowHandler(QtCore.QObject):
     """
@@ -26,7 +34,10 @@ class WindowHandler(QtCore.QObject):
         self._context.setContextProperty("handler", self)
         self.setup_contexts()
         self._component = QQmlComponent(engine)
-        self._component.loadUrl(QtCore.QUrl(qml_source))
+        qml_source = os.path.join(wd, 'uis', qml_source)
+        qml_relpath = os.path.relpath(qml_source, '.')
+        print("QML Source:", qml_relpath, qml_source, QtCore.QUrl(qml_source).path())
+        self._component.loadUrl(QtCore.QUrl(qml_relpath))
         # self._window = self._component.findChild(QtQuick.QQuickView, "window")
         self._window = self._component.create(self._context)
         if title is not None:

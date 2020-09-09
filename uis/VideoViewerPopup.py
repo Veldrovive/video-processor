@@ -1,3 +1,4 @@
+import sys
 from PyQt5 import QtWidgets, QtCore, QtGui
 from vidViewer import ImageViewerV2 as ImageViewer
 from utils.qmlBase import WindowHandler
@@ -8,6 +9,11 @@ import cv2
 import pandas as pd
 import os
 import time
+
+try:
+   wd = sys._MEIPASS
+except AttributeError:
+   wd = os.getcwd()
 
 from typing import Tuple, Dict, List, Union, Optional
 
@@ -249,12 +255,12 @@ class VideoViewerWindowV2(QtWidgets.QMainWindow):
         self.add_action(None, "Next Video",
                         shortcut="Ctrl+Shift+right",
                         status_tip="Move to the next video in the project",
-                        icon="./icons/next_video.svg",
+                        icon=os.path.join(wd, "icons", "next_video.svg"),
                         callback=lambda: self.glo.select_file(self.glo.curr_file_index + 1))
         self.add_action(None, "Previous Video",
                         shortcut="Ctrl+Shift+left",
                         status_tip="Move to the previous video in the project",
-                        icon="./icons/previous_video.svg",
+                        icon=os.path.join(wd, "icons", "previous_video.svg"),
                         callback=lambda: self.glo.select_file(self.glo.curr_file_index - 1))
         self.add_action("&File", "Quit",
                         shortcut="Ctrl+Q",
@@ -265,12 +271,12 @@ class VideoViewerWindowV2(QtWidgets.QMainWindow):
         self.add_action(None, "Play",
                         visible=True,
                         status_tip="Play the Video",
-                        icon="./icons/play-arrow.png",
+                        icon=os.path.join(wd, "icons", "play-arrow.png"),
                         callback=self.viewer.play)
         self.add_action(None, "Pause",
                         visible=False,
                         status_tip="Pause video playback",
-                        icon="./icons/pause.png",
+                        icon=os.path.join(wd, "icons", "pause.png"),
                         callback=self.viewer.pause)
         self.add_action(None, "Toggle Playback",
                         visible=True,
@@ -281,7 +287,7 @@ class VideoViewerWindowV2(QtWidgets.QMainWindow):
                         visible=True,
                         shortcut="right",
                         status_tip="Pause video playback",
-                        icon="./icons/step_forward.svg",
+                        icon=os.path.join(wd, "icons", "step_forward.svg"),
                         callback=lambda: self.viewer.jump_frames(1))
 
         def jump_forward():
@@ -293,13 +299,13 @@ class VideoViewerWindowV2(QtWidgets.QMainWindow):
                         visible=True,
                         shortcut="Shift+right",
                         status_tip="Jump to the next keypoint",
-                        icon="./icons/fast-forward.png",
+                        icon=os.path.join(wd, "icons", "fast-forward.png"),
                         callback=jump_forward)
         self.add_action(None, "Seek Back",
                         visible=True,
                         shortcut="left",
                         status_tip="Pause video playback",
-                        icon="./icons/step_backward.svg",
+                        icon=os.path.join(wd, "icons", "step_backward.svg"),
                         callback=lambda: self.viewer.jump_frames(-1))
 
         def jump_backwards():
@@ -311,7 +317,7 @@ class VideoViewerWindowV2(QtWidgets.QMainWindow):
                         visible=True,
                         shortcut="Shift+left",
                         status_tip="Jump to the previous keypoint",
-                        icon="./icons/rewind.png",
+                        icon=os.path.join(wd, "icons", "rewind.png"),
                         callback=jump_backwards)
         self.add_action("&View", "Add Keyframe",
                         visible=True,
@@ -321,7 +327,7 @@ class VideoViewerWindowV2(QtWidgets.QMainWindow):
         self.add_action(None, "Add Keyframe Button",
                         visible=True,
                         status_tip="Add or Remove a keyframe at the current frame",
-                        icon="./icons/keyframe.svg",
+                        icon=os.path.join(wd, "icons", "keyframe.svg"),
                         callback=lambda: self.glo.video_config.toggle_keypoint(self.viewer.get_curr_frame()))
 
         self.add_action("&View", "Take Snapshot",

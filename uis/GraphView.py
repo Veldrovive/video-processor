@@ -359,7 +359,7 @@ class GraphViewHandlerV2(WindowHandler):
         self._display_bridge.gotNormalization.connect(lambda value: self.got_normalization_value(value))
         self.normalization_value = None
         self.metric_shown_map = {}
-        super().__init__(engine, "uis/GraphView.qml",
+        super().__init__(engine, "GraphView.qml",
                          "View Metrics")
         figure = self._window.findChild(QObject, "figure")
         self._display_bridge.updateWithCanvas(figure)
