@@ -7,6 +7,7 @@ import threading
 from abc import ABCMeta, abstractmethod
 import pandas as pd
 from typing import Dict, Tuple, Optional, List, Union, Set
+import logging
 import numpy as np
 import cv2
 import json
@@ -967,6 +968,7 @@ class Project:
         Sets the save location and created required directories
         :param loc: The new location for the project to be saved to
         """
+        logging.info(f"Setting save directory for {self.name} to: {loc}")
         self.save_loc = os.path.abspath(loc)
         os.makedirs(self.frames_dir, exist_ok=True)
         os.makedirs(self.data_dir, exist_ok=True)
@@ -1095,6 +1097,7 @@ class Project:
         if self.save_loc is None:
             return False
         # This contains info about the videos in the project
+        logging.info(f"Saving project {self.name} to: {self.save_loc}")
         video_df = pd.DataFrame({
             "abs_video_paths": list(self.files_map.keys()),
             "rel_video_paths": [os.path.relpath(path, self.save_loc) for path in self.files_map.keys()],

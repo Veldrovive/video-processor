@@ -6,6 +6,7 @@ import numpy as np
 import cv2
 
 from typing import Optional, Tuple
+import logging
 
 class FrameGrabber(QtCore.QRunnable):
     frame: int
@@ -232,8 +233,10 @@ class Globals(QtWidgets.QWidget):
                 self.select_file(new_project.files[0])
             else:
                 self.select_file(current_vid)
+            logging.info(f"Opened new project {self.project.name}: {project_path}")
             return True
         except ValueError as e:
             print("Failed to open project:", e)
+            logging.exception("Failed to open project because")
             # Then the project failed to load correctly. TODO: Maybe open up a config window with the error.
             return False

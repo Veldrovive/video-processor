@@ -7,6 +7,7 @@ from utils.qmlBase import WindowHandler
 import utils.DataHolders as DataHolders
 from utils.Globals import Globals
 from PyQt5 import QtQuick, QtCore
+import logging
 import pandas as pd
 
 class ProjectHandlerV2(WindowHandler):
@@ -41,8 +42,8 @@ class ProjectHandlerV2(WindowHandler):
         if len(loc) < 1:
             self.send_message("A new project must have a folder.", self.hide)
         loc = QtCore.QUrl(loc).path()
-        if loc[0] == "/":
-            loc = loc[1:]
+        # if loc and loc[0] == "/":
+        #     loc = loc[1:]
         if self.creating_new:
             loc = os.path.abspath(loc)
             self._save_dir = loc
@@ -64,14 +65,18 @@ class ProjectHandlerV2(WindowHandler):
     @QtCore.pyqtSlot(str)
     def add_file(self, path: str):
         qt_url = QtCore.QUrl(path).path()
-        if qt_url[0] == "/":
-            qt_url = qt_url[1:]
+        # if qt_url[0] == "/":
+        #     qt_url = qt_url[1:]
+        #     print("Removed /:", qt_url)
         path = os.path.abspath(qt_url)
         if not os.path.isfile(path):
-            raise ValueError("Video file does not exist")
+            logging.error(f"Tried to add file that does not exist: {path}")
+            return "File does not exist"
         if self.creating_new and path not in self._files:
+            logging.info(f"Added file to new project: {path}")
             self._files[path] = None
         elif self.project is not None:
+            logging.info(f"Added new file to {self.project.name}: {path}")
             self.project.add_file(path)
         self.filesChanged.emit()
 

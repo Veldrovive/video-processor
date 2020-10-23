@@ -68,6 +68,7 @@ test_imgs
 *.p
 
 .ipynb_checkpoints/
+*.log
 projects/
 videos/
 

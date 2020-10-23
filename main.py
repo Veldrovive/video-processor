@@ -7,6 +7,7 @@
 # torch.jit.script = script
 
 import sys
+import traceback
 import pandas as pd
 import cv2
 import time
@@ -34,6 +35,14 @@ except AttributeError:
 #
 # for path in os.listdir('.'):
 #     print("Relative File:", path)
+
+import logging
+LOG_FILENAME = 'out.log'
+logging.basicConfig(filename=LOG_FILENAME,level=logging.DEBUG)
+print([k for k in logging.Logger.manager.loggerDict])
+for v in logging.Logger.manager.loggerDict.values():
+    v.disabled = True
+logging.info("Starting FAME")
 
 class MainWindow(VideoViewerWindow):
     _calculated_metrics: pd.DataFrame
@@ -117,6 +126,19 @@ class MainWindow(VideoViewerWindow):
             print(e)
             print("Failed to save landmarks:", save_path)
 
+def my_exception_hook(type, value, tb):
+    """
+    Intended to be assigned to sys.exception as a hook.
+    Gives programmer opportunity to do something useful with info from uncaught exceptions.
+
+    Parameters
+    type: Exception type
+    value: Exception's value
+    tb: Exception's traceback
+    """
+    logging.exception("Main Crashed", exc_info=(type, value, tb))
+    print("Main Crashed")
+sys.excepthook = my_exception_hook
 
 if __name__ == '__main__':
     print("App started")
