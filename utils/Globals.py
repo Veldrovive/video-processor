@@ -1,9 +1,11 @@
 from typing import Dict, Tuple, List, Union, Optional
+import sys
 from utils import DataHolders
 from PyQt5 import QtCore, QtWidgets
 import os
 import numpy as np
 import cv2
+import re
 
 from typing import Optional, Tuple
 import logging
@@ -83,6 +85,22 @@ class Globals(QtWidgets.QWidget):
     def get_config_change_interaction(self, config_name: str):
         """Gets the function that emits the correct config change"""
         return lambda: self.onConfigChange.emit(config_name)
+
+    def file_path(self, path: str):
+        """
+        Takes a filepath from QT and converts it into an absolute path compatible with the current os.
+        :param path: A QT file path
+        :return: An absolute file path
+        """
+        platform = sys.platform
+        loc = QtCore.QUrl(path).path()
+        if platform.startswith("win32") or platform.startswith("cygwin"):
+            # Then we are on a windows machine
+            logging.info(f"Converting filepath to windows: {path}")
+            return os.path.abspath(loc[1:])
+        else:
+            logging.info(f"Converting filepath to not windows: {path}")
+            return os.path.abspath(loc)
 
     def load_config(self):
         """
@@ -192,8 +210,10 @@ class Globals(QtWidgets.QWidget):
         if file_path not in self.project.files:
             # Maybe prompt user to add it? Maybe this situation never occurs
             raise ValueError("Video file not in project")
+        print("Project Files", self.project.files_map, file_path)
         landmark_file = self.project.files_map[file_path]
         landmarks = DataHolders.Landmarks.load(landmark_file)
+        print("Landmarks File: ", landmark_file)
         cap = self.get_video(file_path)  # To update the video specs
         self.video_config.setup_video(file_path)  # Update the video config
         self.video_config.set_curr_video(file_path)

@@ -812,7 +812,10 @@ class Landmarks:
             return False
         if save_copy and os.path.exists(s_file):
             name, ext = os.path.splitext(s_file)
-            os.rename(s_file, name + "_orig" + ext)
+            orig_file = name + "_orig" + ext
+            if os.path.exists(orig_file):
+                os.remove(orig_file)
+            os.rename(s_file, orig_file)
         frame.to_csv(s_file, index=False)
 
 
@@ -874,6 +877,7 @@ class Project:
     def data_dir(self) -> Optional[str]:
         if self.save_loc is None:
             return None
+        print("Data dir: ", os.path.join(self.save_loc, "data"))
         return os.path.join(self.save_loc, "data")
 
     @property
@@ -998,6 +1002,7 @@ class Project:
         :param vid_path: The path to the video
         :param l_path: The path to the landmark file
         """
+        print("Setting landmarks for",vid_path,"equal to", l_path)
         abs_vid_path = os.path.abspath(vid_path)
         if abs_vid_path not in self.files_map:
             return False
@@ -1010,6 +1015,7 @@ class Project:
         self.files_map[abs_vid_path] = abs_l_path
         if self.copy_files:
             self.copy_videos_to_project()
+        self.save()
         return True
 
     def remove_video(self, vid_path, clean_disk: bool = False):
