@@ -71,4 +71,5 @@ test_imgs
 *.log
 projects/
 videos/
+data/
 

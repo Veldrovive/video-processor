@@ -1114,8 +1114,14 @@ class Project:
             "name": self.name,
             "p_id": self.id
         }, index=["name"])
-        video_df.to_csv(os.path.join(self.save_loc, "video_data.csv"))
-        meta_df.to_csv(os.path.join(self.save_loc, "meta_data.csv"))
+        video_data_path = os.path.join(self.save_loc, "video_data.csv")
+        meta_data_path = os.path.join(self.save_loc, "meta_data.csv")
+        if os.path.exists(video_data_path):
+            os.remove(video_data_path)
+        if os.path.exists(meta_data_path):
+            os.remove(meta_data_path)
+        video_df.to_csv(video_data_path)
+        meta_df.to_csv(meta_data_path)
         return True
 
     @staticmethod

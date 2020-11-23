@@ -6,6 +6,7 @@ import pandas as pd
 from queue import Queue
 from collections import deque
 import math
+import logging
 
 from landmark_detection.face_alignment.utils import *
 from landmark_detection.face_alignment import api as face_alignment
@@ -80,6 +81,7 @@ class LightningFANDetector(QtCore.QThread):
         # Initialize Landmark Localization
         try:
             self._face_detector_net = s3fd()
+            logging.info(f"Moving s3fd to {self._device}")
             self._face_detector_net.to(self._device)
             self.load_weights(self._face_detector_net, self.detector_model_path)
             self._face_detector_net.to(self._device)
@@ -102,6 +104,7 @@ class LightningFANDetector(QtCore.QThread):
             print("Error was: ", e)
         self._face_alignment_net.eval()
         self._face_alignment_net.freeze()
+        logging.info(f"Moving FAN to {self._device}")
         self._face_alignment_net.to(self._device)
 
     def load_weights(self, model: Union[FAN, s3fd], filename: str) -> bool:
