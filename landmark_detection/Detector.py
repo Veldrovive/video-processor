@@ -80,6 +80,7 @@ class LightningFANDetector(QtCore.QThread):
         # Initialize Landmark Localization
         try:
             self._face_detector_net = s3fd()
+            self._face_detector_net.to(self._device)
             self.load_weights(self._face_detector_net, self.detector_model_path)
             self._face_detector_net.to(self._device)
             self._face_detector_net.eval()
@@ -101,6 +102,7 @@ class LightningFANDetector(QtCore.QThread):
             print("Error was: ", e)
         self._face_alignment_net.eval()
         self._face_alignment_net.freeze()
+        self._face_alignment_net.to(self._device)
 
     def load_weights(self, model: Union[FAN, s3fd], filename: str) -> bool:
         sd = torch.load(filename, map_location=lambda storage, loc: storage)
@@ -295,6 +297,7 @@ class LightningFANDetector(QtCore.QThread):
         frame_for_boundingbox = None
         # The maximum amount of iterations required is math.ceil(video_length/number_of_frames)
         frames_processed = 0
+        logging.info(f'Processing frames on device: {self._device}')
         while input_stack:
             self.frame_done_signal.emit(self._completed_frames, self._completed_frames/self._total_frames)
             # Get a list of frame numbers of length number_of_frames
