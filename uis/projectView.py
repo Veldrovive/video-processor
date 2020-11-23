@@ -41,15 +41,11 @@ class ProjectHandlerV2(WindowHandler):
     def save_loc(self, loc: str):
         if len(loc) < 1:
             self.send_message("A new project must have a folder.", self.hide)
-        loc = QtCore.QUrl(loc).path()
-        # if loc and loc[0] == "/":
-        #     loc = loc[1:]
+        loc = self._glo.file_path(loc)
         if self.creating_new:
-            loc = os.path.abspath(loc)
             self._save_dir = loc
             self.saveLocUpdated.emit()
         elif self.project is not None:
-            loc = os.path.abspath(loc)
             self.project.set_save_loc(loc)
             self.saveLocUpdated.emit()
 
@@ -64,11 +60,7 @@ class ProjectHandlerV2(WindowHandler):
 
     @QtCore.pyqtSlot(str)
     def add_file(self, path: str):
-        qt_url = QtCore.QUrl(path).path()
-        # if qt_url[0] == "/":
-        #     qt_url = qt_url[1:]
-        #     print("Removed /:", qt_url)
-        path = os.path.abspath(qt_url)
+        path = self._glo.file_path(path)
         if not os.path.isfile(path):
             logging.error(f"Tried to add file that does not exist: {path}")
             return "File does not exist"
@@ -81,8 +73,9 @@ class ProjectHandlerV2(WindowHandler):
         self.filesChanged.emit()
 
     @QtCore.pyqtSlot(str)
-    def remove_file(self, path: str):
-        path = os.path.abspath(path)
+    def remove_file(self, loc: str):
+        path = loc
+        logging.info(f"Removing file {loc} converted to {path}")
         if self.creating_new and path in self._files:
             del self._files[path]
         elif self.project is not None:
