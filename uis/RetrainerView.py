@@ -457,7 +457,8 @@ class RetrainerView(WindowHandler):
             coor_landmark = os.path.splitext(file)[0] + ".csv"
             if coor_landmark in landmarks_list:
                 file_name = os.path.splitext(file)[0]
-                video_name, frame_number = file_name.split("-")
+                name_fragments = file_name.split("-")
+                video_name, frame_number = "-".join(name_fragments[:-1]), name_fragments[-1]
                 frame_number = int(frame_number)
                 if video_name not in video_map:
                     video_map[video_name] = {"num_frames": 0, "frames": []}
