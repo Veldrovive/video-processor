@@ -996,6 +996,19 @@ class Project:
         if self.copy_files and copy_files:
             self.copy_videos_to_project()
 
+    def add_model(self, path: str):
+        """
+        Copies a model into the project
+        :param path: A path to the model
+        """
+        abs_path = os.path.abspath(path)
+        if not os.path.isfile(abs_path):
+            raise ValueError("Model file does not exist")
+        model_name = os.path.splitext(os.path.basename(abs_path))[0]
+        model_path = os.path.join(self.fan_dir, model_name)
+        os.makedirs(model_path, exist_ok=True)
+        shutil.copy(abs_path, os.path.join(model_path, f"{model_name}_model_v1.ptl"))
+
     def set_landmarks(self, vid_path: str, l_path: Union[str, None]):
         """
         Sets the landmark file in the map

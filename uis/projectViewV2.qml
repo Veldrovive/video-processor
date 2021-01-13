@@ -59,6 +59,20 @@ ApplicationWindow {
         }
     }
 
+    FileDialog {
+        id: addModelDialog
+        title: "Select a FAN model to add to the project"
+        selectExisting: true
+        selectFolder: false
+        selectMultiple: false
+        sidebarVisible: true
+        onAccepted: {
+            for(const filePath of fileUrls){
+                handler.add_model(filePath);
+            }
+        }
+    }
+
     Rectangle {
         id: header
         property var vertPadding: 5
@@ -207,6 +221,19 @@ ApplicationWindow {
 
                 onClicked: {
                     addFilesDialog.open();
+                }
+            }
+
+            Button {
+                id: addModelButton
+                anchors.left: addFileButton.right
+                anchors.leftMargin: 4
+                anchors.bottom: parent.bottom
+
+                text: qsTr("Add Model")
+
+                onClicked: {
+                    addModelDialog.open();
                 }
             }
 

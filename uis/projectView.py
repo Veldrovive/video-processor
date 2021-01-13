@@ -17,6 +17,7 @@ class ProjectHandlerV2(WindowHandler):
     _save_dir: Optional[str] = None
     _name: str = ""
     _files: Dict[str, str]
+    _models: List[str]
 
     openSaveLocDialog = QtCore.pyqtSignal()
 
@@ -71,6 +72,19 @@ class ProjectHandlerV2(WindowHandler):
             logging.info(f"Added new file to {self.project.name}: {path}")
             self.project.add_file(path)
         self.filesChanged.emit()
+
+    @QtCore.pyqtSlot(str)
+    def add_model(self, path: str):
+        path = self._glo.file_path(path)
+        if not os.path.isfile(path):
+            logging.error(f"Tried to add file that does not exist: {path}")
+            return "File does not exist"
+        if self.creating_new:
+            logging.info(f"Added model to new project: {path}")
+            self._models.append(path)
+        elif self.project is not None:
+            logging.info(f"Added new model to {self.project.name}: {path}")
+            self.project.add_model(path)
 
     @QtCore.pyqtSlot(str)
     def remove_file(self, loc: str):
@@ -131,6 +145,8 @@ class ProjectHandlerV2(WindowHandler):
                 if landmark_file:
                     new_project.set_landmarks(video_file, landmark_file)
             new_project.save()
+            for model_path in self._models:
+                new_project.add_model(model_path)
             self._glo.select_project(self.save_loc)
             self.hide()
             self.reset()
@@ -149,6 +165,7 @@ class ProjectHandlerV2(WindowHandler):
 
     def reset(self):
         self._files = {}
+        self._models = []
         self._name = ""
         self._save_dir = None
 
