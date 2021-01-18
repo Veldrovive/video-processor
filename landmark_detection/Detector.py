@@ -279,11 +279,15 @@ class LightningFANDetector(QtCore.QThread):
         video_height = int(video_handler.get(cv2.CAP_PROP_FRAME_HEIGHT))
         video_channels = 3
 
-        video_length = -1
-        ret = True
-        while ret:
-            ret, frame = video_handler.read()
-            video_length += 1
+        # video_length = -1
+        # ret = True
+        # while ret:
+        #     ret, frame = video_handler.read()
+        #     video_length += 1
+
+        # Estimates the total number of frames in the video. Note that this is often incorrect so we need to handle
+        # these cases where we try to read over the last frame of the video.
+        video_length = int(video_handler.get(cv2.CAP_PROP_FRAME_COUNT))
         video_handler.set(0, 0)  # Resets video handler to frame 0
         if frames is None:
             frames = range(video_length)
@@ -313,12 +317,15 @@ class LightningFANDetector(QtCore.QThread):
                 else:
                     input_stack.append(next_frame)
                     break
+            logging.info(f'Processing frame stack: {sequence}')
             frame_stack = np.zeros((len(sequence), video_height, video_width, video_channels))
+            any_succeeded = False  # Used to track whether we should break out of the loop
             for index, frame_num in enumerate(sequence):
                 while video_handler.get(cv2.CAP_PROP_POS_FRAMES) < frame_num:
                     video_handler.read()
                 ret, frame = video_handler.read()
                 if ret:
+                    any_succeeded = True
                     if frame_num == sequence[0]:
                         frame_for_boundingbox = cv2.resize(frame,
                                                            (video_width // scale_factor, video_height // scale_factor),
@@ -331,6 +338,10 @@ class LightningFANDetector(QtCore.QThread):
                     print(f"Skipped Frame: {frame}")
             if frame_for_boundingbox is None:
                 continue
+            if not any_succeeded:
+                # Then the video has probably actually ended and the number of frame estimation was incorrrect.
+                logging.info('Hit end of video early')
+                break
             bboxlist = self.detect_bbox(self._face_detector_net, torch.from_numpy(frame_for_boundingbox).float().to(self._device))
             keep = self.nms(bboxlist)
             bboxlist = bboxlist[keep, :]
@@ -371,6 +382,7 @@ class LightningFANDetector(QtCore.QThread):
             frames_processed += len(sequence)
             self._completed_frames += len(sequence)
             # save everything in a DataFrame
+            logging.info(f'Got landmarks for frames {sequence}')
             for i, frame_num in enumerate(sequence):
                 datum = list()  # dict containing information for one frame
                 datum.append(frame_num)
